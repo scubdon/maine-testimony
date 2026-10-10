@@ -1,0 +1,76 @@
+name: Weekly scrape
+
+# Refreshes the public dataset once a week. The working SQLite database holds
+# private individuals' names, so it lives only in the Actions cache; just the
+# privacy-reduced exports in data/public/ are committed.
+
+on:
+  schedule:
+    - cron: "17 7 * * 1" # Mondays 07:17 UTC (off the hour, to spread load)
+  workflow_dispatch:
+    inputs:
+      doc_limit:
+        description: "Max PDFs to download this run"
+        default: "3000"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      MTESTIMONY_CONTACT: https://github.com/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+
+      - name: Restore working database
+        uses: actions/cache/restore@v4
+        with:
+          path: data/testimony.sqlite
+          key: testimony-db-${{ github.run_id }}
+          restore-keys: testimony-db-
+
+      - name: Crawl listings (incremental)
+        run: mtestimony -v crawl --rate 1.0 --no-cache
+
+      - name: Classify submitters
+        run: mtestimony classify
+
+      # Organization/government/legislator PDFs first: they drive the analysis, and the
+      # full corpus (100k+ documents) takes many runs at a polite 1 request/second.
+      - name: Download and parse new PDFs
+        run: |
+          mtestimony fetch-docs --rate 1.0 --orgs-only --limit ${{ inputs.doc_limit || '3000' }}
+
+      - name: Derive and export
+        run: |
+          mtestimony positions
+          mtestimony form-letters
+          mtestimony export
+          mtestimony stats
+
+      - name: Save working database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/testimony.sqlite
+          key: testimony-db-${{ github.run_id }}
+
+      - name: Commit public dataset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/public
+          git diff --staged --quiet || git commit -m "data: weekly refresh $(date -u +%F)"
+          git push

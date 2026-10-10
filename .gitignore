@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Data: the working database, raw cache, PDFs and label files contain names,
+# addresses and other personal details of private individuals. Never commit them.
+data/*
+!data/public/
+data/public/*
+!data/public/testimony.parquet
+!data/public/organizations.csv
+!data/public/bills.csv
+!data/public/towns.csv
+!data/public/.gitkeep
