@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.idea/
 
 # Data: the working database, raw cache, PDFs and label files contain names,
 # addresses and other personal details of private individuals. Never commit them.
