@@ -61,21 +61,51 @@ _NONE = re.compile(
 _LEGISLATOR = re.compile(
     r"\b(maine )?(state )?legislature\b|\bhouse of representatives\b|"
     r"\bmaine (state )?(house|senate)\b|^(senate|house)$|"
-    r"^(state )?(rep(resentative)?|sen(ator)?)\.?\b|\b(house|senate) district\b",
+    r"^(state )?(rep(resentative)?|sen(ator)?)\.?\b|\b(house|senate) district\b|"
+    # district shorthand: "HD86", "H.D. 48", "SD 12", "Augusta, HD 60" (1-3 digits, so
+    # "SD 57104" stays a ZIP), and a bare "District 136" / "District 11 - Waldo County"
+    r"(^|,\s*)[hs]\.?\s*d\.?\s*[-#:]?\s*\d{1,3}\b|"
+    r"^district\s*#?\s*\d{1,3}(\s*$|\s*[,:\-]|\s+((me|maine)\s+)?(house|senate|rep))",
     re.I,
 )
 _GOVERNMENT = re.compile(
     r"^(maine )?(department|dept\.?|bureau|office) of\b|\bdepartment of\b|"
     r"^(town|city|county) of\b|\b(county (commissioners?|government|sheriff'?s? office))\b|"
     r"\bsheriff'?s? office\b|\bpolice department\b|\bfire department\b|"
-    r"\bgovernor'?s? office\b|^office of the governor\b|\battorney general\b|"
+    r"\bgovernor'?s? ([a-z]+ ){0,2}office\b|^office of the governor\b|\battorney general\b|"
+    r"\bmainecare services\b|\bethics commission\b|"
     r"\bsecretary of state\b|\bpublic utilities commission\b|\bpublic advocate\b|"
     r"\b(state|maine) (police|library|museum|archives|housing authority)\b|"
     r"\b(permanent )?comm?iss?ion on\b|\bmaine (state )?board of\b|\bjudicial branch\b|"
     r"\b(finance|turnpike|port|housing|transit|water|sewer) authority\b|\bauthority of maine\b|"
     r"\b(rsu|msad|sad|aos)\s*#?\s*\d+\b|\bschool (department|district|board|committee)\b|"
-    r"^(dhhs|dacf|dep|mdot|doe|difw|dmr|dafs|dps|doc|decd|dol|puc|maine ?cdc|maine ?dot)$",
+    r"\b(regional school unit|school administrative district|school union)\s*(no\.?|#)?\s*\d+|"
+    r"\b(community college|university of maine) system\b|"
+    r"\bswcd\b|\bsoil (and|&) water conservation district\b|"
+    r"^(dhhs|dacf|dep|mdot|doe|difw|dmr|dafs|dps|doc|decd|dol|puc|fame|maine ?cdc|maine ?dot)$",
     re.I,
+)
+# An association of governments is an organization: "Maine County Commissioners
+# Association", "Maine School Board's Association" (cf. Maine Municipal Association).
+_ASSOCIATION = re.compile(r"\b(associat\w*|assn|assoc)\b", re.I)
+# A named school at a public grade level ("Cony Middle and High School"), unless the
+# name marks it private or it is a group attached to the school. Most private high
+# schools are "Academy"; Cheverus, John Bapst and McAuley are the named exceptions.
+_PUBLIC_SCHOOL = re.compile(
+    r"\b(elementary|middle|high|grammar|consolidated|intermediate|primary|community|regional)"
+    r"\s+school\b",
+    re.I,
+)
+_NOT_PUBLIC_SCHOOL = re.compile(
+    r"\b(christian|catholic|montessori|friends|waldorf|academy|saint|st|baptist|hebrew|"
+    r"cheverus|bapst|mcauley|program\w*|"
+    r"islamic|charter|driving|business|law|coalition|foundation|network|alliance|partnership|"
+    r"club|robotics|pto|pta|parents?|boosters?|council|league|project|students?|alumni)\b",
+    re.I,
+)
+# "Portland Public Schools", "Augusta Schools", "Kittery School Dist." (prefix = a town)
+_TOWN_SCHOOLS = re.compile(
+    r"^(.+?)\s+(public\s+)?schools?(\s+(department|dept|district|dist)\.?)?$", re.I
 )
 _ORG_WORDS = re.compile(
     r"\b(associat\w*|assn|coalition|council|alliance|institute|society|network|foundation|"
@@ -91,7 +121,9 @@ _ORG_WORDS = re.compile(
     re.I,
 )
 _ACRONYM = re.compile(r"^[A-Z][A-Z&\-]{1,8}$")
-_CAMEL = re.compile(r"^[A-Z][a-z]+(?:[A-Z][A-Za-z]*)+$")  # MaineHealth, FocusMaine
+_CAMEL = re.compile(  # MaineHealth, FocusMaine, MEDCo
+    r"^[A-Z][a-z]+(?:[A-Z][A-Za-z]*)+$|^[A-Z]{2,}[a-z]+$"
+)
 _TOWNSHIP = re.compile(r"^(.+?)\s+(twp\.?|township|plt\.?|plantation)$", re.I)
 _ME_SUFFIX = re.compile(r"[,\s]+(me|maine)\.?(\s+\d{5}(-\d{4})?)?$", re.I)
 _DIRECTIONAL = re.compile(r"^(north|south|east|west|n\.?|s\.?|e\.?|w\.?)\s+(.+)$", re.I)
@@ -122,7 +154,8 @@ def place_key(name: str) -> str:
     "Saint George" == "St. George" == "st george"."""
     s = name.casefold().replace("'", "").replace("’", "").replace(".", " ")
     s = re.sub(r"\s+", " ", s).strip()
-    return re.sub(r"^saint ", "st ", s)
+    s = re.sub(r"^saint ", "st ", s)
+    return re.sub(r"^mt ", "mount ", s)
 
 
 @lru_cache(maxsize=1)
@@ -145,11 +178,34 @@ def match_town(value: str) -> tuple[Place, str] | None:
     m = _DIRECTIONAL.match(s)
     if m and m.group(2) in places:
         return places[m.group(2)], "town_directional"  # e.g. "West Baldwin" -> Baldwin
+    if m and len(s) >= 8:
+        # Typo after a directional ("North Hanson" -> North Anson): fuzz only against
+        # places that start with the same directional word.
+        prefix = m.group(1) + " "
+        same_dir = [k for k in places if k.startswith(prefix)]
+        hit = process.extractOne(s, same_dir, scorer=fuzz.ratio, score_cutoff=88)
+        if hit:
+            return places[hit[0]], "town_fuzzy_directional"
     if len(s) >= 5 and " " not in s.strip():
         hit = process.extractOne(s, list(places), scorer=fuzz.ratio, score_cutoff=88)
         if hit:
             return places[hit[0]], "town_fuzzy"  # typos: "Orringon", "Castin"
     return None
+
+
+_TOWN_LIST_SEP = re.compile(r"\s*(?:,|&|\band\b)\s*", re.I)
+
+
+def match_towns(value: str) -> Place | None:
+    """First town of a list in which *every* part is a distinct Maine town:
+    "Bath and Phippsburg, Maine", "Topsham, ME and Waterford, ME", but not the
+    company "Reed & Reed"."""
+    s = _ME_SUFFIX.sub("", value.strip()).strip(" ,.")
+    parts = [p for p in _TOWN_LIST_SEP.split(s) if p and p.casefold() not in {"me", "maine"}]
+    if not 2 <= len(parts) <= 4 or len({place_key(p) for p in parts}) < len(parts):
+        return None
+    hits = [match_town(p) for p in parts]
+    return hits[0][0] if all(hits) else None
 
 
 # ------------------------------------------------------------------- classify
@@ -194,13 +250,19 @@ def _classify_one(raw: str) -> Classification:
         return Classification(Category.NONE, "blank_or_placeholder")
     if _LEGISLATOR.search(raw):
         return Classification(Category.LEGISLATOR, "legislator_pattern")
-    if _GOVERNMENT.search(raw):
+    if _GOVERNMENT.search(raw) and not _ASSOCIATION.search(raw):
         return Classification(Category.GOVERNMENT, "government_pattern")
+    if _PUBLIC_SCHOOL.search(raw) and not _NOT_PUBLIC_SCHOOL.search(raw):
+        return Classification(Category.GOVERNMENT, "public_school")
+    if (m := _TOWN_SCHOOLS.match(raw)) and match_town(m.group(1)):
+        return Classification(Category.GOVERNMENT, "town_schools")
 
     town = match_town(raw)
     if town:
         place, rule = town
         return Classification(Category.TOWN, rule, place.name, place.geoid)
+    if place := match_towns(raw):
+        return Classification(Category.TOWN, "town_multi", place.name, place.geoid)
 
     if m := _TOWNSHIP.match(raw):
         # Unorganized townships ("Argyle Twp.") and plantations: a place, not an org.

@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 70 tests, ~1s, all HTTP mocked
+pytest -q                          # 110 tests, ~1s, all HTTP mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -97,10 +97,12 @@ Base `https://legislature.maine.gov/bills/`:
 
 **Classification**
 - Rule ORDER in `classify._classify_one` is load-bearing: placeholder -> legislator
-  -> government -> Maine town -> township -> out-of-state -> org keyword ->
+  -> government (pattern, `public_school`, `town_schools`) -> Maine town
+  (incl. `town_multi` lists) -> township -> out-of-state -> org keyword ->
   acronym -> CamelCase -> multiword fallback -> unknown. E.g. government before
   town keeps "Town of Sanford" a government; town before org keyword keeps
-  "Union" (a Knox County town) a town.
+  "Union" (a Knox County town) a town. Government patterns are skipped when the
+  name contains "association" (an association of governments is an organization).
 - Every result carries a `rule` string saved to the DB. New rules need a name.
 - Never auto-expand acronyms ("MMA" = Municipal OR Medical Association). Only
   unambiguous ones go in `org_aliases.csv`.
@@ -139,12 +141,13 @@ pd.read_sql("SELECT position, method, COUNT(*) n FROM positions GROUP BY 1,2", c
 ```
 
 Measure accuracy on fresh samples, not the ones used to tune rules
-(`mtestimony label-sample` / `mtestimony evaluate`).
+(`mtestimony label-sample --seed N --out NEW.csv` / `mtestimony evaluate`). Round 1
+(seed 13, `data/labels/submitters_round1_labeled.csv`) was used for tuning, so its
+score is not a publishable accuracy. `label-sample` refuses to overwrite without `--force`.
 
 ## Known gaps / next steps
 
 - Hand-label 300 submitters + ~200 documents; report real precision/recall.
-- `("Union", C.TOWN, "Union")` regression test not yet added.
 - LLM fallback for `unknown` positions (~20% of documents), validated on labels.
 - Scanned PDFs (~1%) have no text layer; no OCR.
 - Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,

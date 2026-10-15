@@ -7,6 +7,8 @@ Run once (or when the Census publishes a new vintage):
 Sources (public domain, US Census Bureau):
   * County subdivisions -> Maine's cities, towns, plantations, reservations
   * Places              -> census-designated places (villages people often give as "town")
+  * Places, Census 2000 -> CDPs since dropped by the Census but still how people
+                           describe where they live (Springvale, South Sanford)
 """
 
 from __future__ import annotations
@@ -14,12 +16,15 @@ from __future__ import annotations
 import csv
 import io
 import urllib.request
+import zipfile
 from pathlib import Path
 
 VINTAGE = "2023"
 BASE = f"https://www2.census.gov/geo/docs/maps-data/data/gazetteer/{VINTAGE}_Gazetteer/"
 COUSUB = BASE + f"{VINTAGE}_gaz_cousubs_23.txt"
 PLACE = BASE + f"{VINTAGE}_gaz_place_23.txt"
+# Fixed-width, all states; layout: www.census.gov/geo/www/gazetteer/places2k.html
+PLACE_2000 = "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/places2k.zip"
 OUT = Path(__file__).resolve().parents[1] / "src/maine_testimony/data/maine_places.csv"
 
 COUNTIES = {
@@ -50,6 +55,24 @@ def fetch(url: str) -> list[dict[str, str]]:
     return [{k.strip(): (v or "").strip() for k, v in row.items()} for row in rows]
 
 
+def fetch_places_2000() -> list[dict[str, str]]:
+    with urllib.request.urlopen(PLACE_2000, timeout=60) as r:
+        data = r.read()
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        text = z.read("places2k.txt").decode("latin-1")
+    return [
+        {
+            "NAME": line[9:73].strip(),
+            "GEOID": line[2:9],
+            "ALAND_SQMI": line[119:131].strip(),
+            "INTPTLAT": line[143:153].strip(),
+            "INTPTLONG": line[153:164].strip(),
+        }
+        for line in text.splitlines()
+        if line.startswith("ME")
+    ]
+
+
 def main() -> None:
     out: dict[str, dict[str, str]] = {}
 
@@ -72,10 +95,11 @@ def main() -> None:
             "aland_sqmi": r["ALAND_SQMI"],
         }
 
-    # CDPs: only add names that are not already municipalities.
-    for r in fetch(PLACE):
+    # CDPs: only add names that are not already municipalities. Current vintage first;
+    # 2000 only fills in dropped CDPs, skipping merged ones ("Mars Hill-Blaine").
+    for r in fetch(PLACE) + fetch_places_2000():
         name, _, kind = r["NAME"].rpartition(" ")
-        if kind != "CDP" or name in out:
+        if kind != "CDP" or name in out or "-" in name:
             continue
         out[name] = {
             "name": name,

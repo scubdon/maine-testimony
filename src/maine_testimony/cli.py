@@ -141,9 +141,16 @@ def label_sample(
     db: DB = DEFAULT_DB,
     n: Annotated[int, typer.Option(help="Rows to sample.")] = 300,
     out: Annotated[Path, typer.Option()] = Path("data/labels/submitters_todo.csv"),
+    seed: Annotated[
+        int, typer.Option(help="Sampling seed; use a new one for each fresh evaluation.")
+    ] = 13,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing --out.")] = False,
 ) -> None:
     """Write a random sample of submitter values for hand-labeling."""
-    typer.echo(f"wrote {write_label_sample(Store(db), out, n)} rows to {out}")
+    if out.exists() and not force:
+        typer.echo(f"{out} exists (it may hold labels); pass --force or a new --out", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"wrote {write_label_sample(Store(db), out, n, seed=seed)} rows to {out}")
 
 
 @app.command()

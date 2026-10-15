@@ -16,3 +16,6 @@ data/public/*
 !data/public/bills.csv
 !data/public/towns.csv
 !data/public/.gitkeep
+
+# Personal progress notes (local only)
+PROGRESS.md
