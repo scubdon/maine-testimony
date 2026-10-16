@@ -28,6 +28,15 @@ P = Position
         # supporting "the intent" is not support
         ("While we support the intent of the bill, the cost is too high.", P.UNKNOWN),
         ("I am submitting this testimony to voice my concerns about the cuts.", P.UNKNOWN),
+        # web-form letters: "DO NOT PASS" header after the LD number, testify/speak against
+        ("Jordan Sample Anytown LD 104 DO NOT PASS I'm testifying against the ...", P.OPPOSE),
+        ('Jordan Sample Anytown LD 1847 "Do not pass" This will hurt small farms.', P.OPPOSE),
+        ("I'm testifying against the passing of this bill. It will be a disaster.", P.OPPOSE),
+        ("I want to speak against these bills that deny rights to people.", P.OPPOSE),
+        ("These rules raise costs for growers. Please reject these harmful proposals.", P.OPPOSE),
+        ("Our families deserve better. Please do not pass these.", P.OPPOSE),
+        # "do not pass" with a subject argues for passage, not against it
+        ("If we do not pass this bill, families will lose care.", P.UNKNOWN),
     ],
 )
 def test_positions(text, expected):

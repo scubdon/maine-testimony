@@ -58,6 +58,12 @@ _OPPOSE = [
     r"\bagainst\s+" + _BILL,
     r"\bI\s+(?:strongly\s+)?oppose\b",
     r"\bwe\s+(?:strongly\s+)?oppose\b",
+    # "I'm testifying against the passing of LD 104", "here to speak against these bills"
+    r"\b(?:testify(?:ing)?|speak(?:ing)?)\s+(?:today\s+)?against\b",
+    # "DO NOT PASS" as a header after the LD number or as its own sentence; not
+    # "if we do not pass this bill" (which argues for passage)
+    r"(?:\bplease\s+|\bL\.?\s?D\.?\s?\d+|[.!?:\u2014\u2013-])[\s:,\"\u201c'-]*do\s+not\s+pass\b",
+    r"\bplease\s+(?:vote\s+to\s+)?reject\b",
 ]
 _SUPPORT = [
     r"\bin\s+(?:strong\s+|full\s+)?support\s+of\b",
