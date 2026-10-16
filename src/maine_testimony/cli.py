@@ -84,6 +84,14 @@ def classify(db: DB = DEFAULT_DB) -> None:
         typer.echo(f"{cat:<14}{n:>8}  {n / total:6.1%}")
 
 
+def _parse_bill(value: str) -> tuple[int, str]:
+    """``132:SP0262`` -> ``(132, "SP0262")``."""
+    session, sep, paper = value.partition(":")
+    if not sep or not session.strip().isdigit() or not paper.strip():
+        raise typer.BadParameter(f"expected SESSION:PAPER like 132:SP0262, got {value!r}")
+    return int(session), paper.strip().upper()
+
+
 @app.command("fetch-docs")
 def fetch_docs(
     db: DB = DEFAULT_DB,
@@ -95,14 +103,33 @@ def fetch_docs(
         bool,
         typer.Option(help="Only organizations, government and legislators (run classify first)."),
     ] = False,
+    bill: Annotated[
+        list[str] | None,
+        typer.Option(help="Only testimony on this bill, as SESSION:PAPER (e.g. 132:SP0262)."),
+    ] = None,
+    session: Annotated[
+        list[int] | None, typer.Option("--session", "-s", help="Only these sessions.")
+    ] = None,
+    min_submissions: Annotated[
+        int | None, typer.Option(help="Only bills with at least N testimony records.")
+    ] = None,
 ) -> None:
     """Download testimony PDFs and store their extracted text."""
     cats = ["organization", "government", "legislator"] if orgs_only else None
+    bills = [_parse_bill(b) for b in bill] if bill else None
 
     async def go():
         async with TestimonyClient(min_interval=rate) as client:
             stats = await fetch_documents(
-                client, Store(db), limit=limit, save_dir=save_pdfs, random=random, categories=cats
+                client,
+                Store(db),
+                limit=limit,
+                save_dir=save_pdfs,
+                random=random,
+                categories=cats,
+                bills=bills,
+                sessions=session,
+                min_submissions=min_submissions,
             )
             typer.echo(dict(stats))
 

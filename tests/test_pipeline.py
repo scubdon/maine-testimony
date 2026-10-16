@@ -79,3 +79,19 @@ async def test_orgs_only_document_queue(mock_api, client, store):
     ids = store.testimony_without_documents(categories=["organization", "government", "legislator"])
     assert sorted(ids) == [1, 3, 5]
     assert len(store.testimony_without_documents()) == 6
+
+
+async def test_bill_filters_on_document_queue(mock_api, client, store):
+    await crawl(client, store, sessions=[132])
+    queue = store.testimony_without_documents
+    assert queue(bills=[(132, "SP0202")]) == [5]
+    assert sorted(queue(bills=[(132, "SP0202"), (132, "IB0001")])) == [5, 6]
+    assert queue(bills=[(131, "SP0202")]) == []
+    assert queue(sessions=[131]) == []
+    assert sorted(queue(sessions=[132], min_submissions=2)) == [1, 2, 3, 4]
+    # The threshold counts all submissions on the bill, fetched or not.
+    store.save_document(1, text="x")
+    assert sorted(queue(min_submissions=4)) == [2, 3, 4]
+    assert queue(min_submissions=5) == []
+    run_classify(store)
+    assert queue(categories=["legislator"], min_submissions=2) == [3]
