@@ -12,6 +12,7 @@ Label files contain raw free text from submitters and stay out of git (``data/``
 from __future__ import annotations
 
 import csv
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -20,13 +21,14 @@ from .db import Store
 
 
 def write_label_sample(store: Store, out: Path, n: int = 300, seed: int = 13) -> int:
-    # Deterministic pseudo-random order (SQLite's RANDOM() can't be seeded).
+    # Seeded sample in Python: SQLite's RANDOM() can't be seeded, and adding the seed to
+    # a hash key in ORDER BY only rotates one fixed order (every seed gave the same rows).
     rows = store.conn.execute(
         """SELECT t.id, t.organization, s.category, s.rule
            FROM testimony t JOIN submitters s ON s.testimony_id = t.id
-           ORDER BY (t.id * 2654435761 + ?) % 4294967296 LIMIT ?""",
-        (seed, n),
+           ORDER BY t.id"""
     ).fetchall()
+    rows = random.Random(seed).sample(rows, min(n, len(rows)))
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as f:
         w = csv.writer(f)
