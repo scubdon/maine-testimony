@@ -18,6 +18,7 @@ ruff check . && ruff format .      # line length 100, target py311
 mtestimony crawl -s 132 --per-committee 2
 mtestimony classify
 mtestimony fetch-docs --orgs-only --limit 100
+mtestimony fetch-docs --bill 132:SP0262          # or: -s 132 --min-submissions 300
 mtestimony positions
 mtestimony form-letters
 mtestimony export                  # -> data/public/

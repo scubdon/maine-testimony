@@ -193,10 +193,16 @@ class Store:
         limit: int | None = None,
         random: bool = False,
         categories: list[str] | None = None,
+        bills: list[tuple[int, str]] | None = None,
+        sessions: list[int] | None = None,
+        min_submissions: int | None = None,
     ) -> list[int]:
         """IDs still missing a document, newest first (or random).
 
         ``categories`` restricts to submitter categories (requires ``classify`` first).
+        ``bills`` restricts to ``(session_number, paper_number)`` pairs, ``sessions`` to
+        session numbers, and ``min_submissions`` to bills with at least that many testimony
+        records (fetched or not). Filters combine with AND.
         """
         order = "RANDOM()" if random else "t.hearing_date DESC, t.id"
         where, params = "d.testimony_id IS NULL", []
@@ -204,7 +210,23 @@ class Store:
         if categories:
             join = "JOIN submitters s ON s.testimony_id = t.id"
             where += f" AND s.category IN ({','.join('?' * len(categories))})"
-            params = list(categories)
+            params += categories
+        if bills:
+            where += (
+                " AND ("
+                + " OR ".join(["(t.session_number = ? AND t.paper_number = ?)"] * len(bills))
+                + ")"
+            )
+            params += [v for bill in bills for v in bill]
+        if sessions:
+            where += f" AND t.session_number IN ({','.join('?' * len(sessions))})"
+            params += sessions
+        if min_submissions:
+            where += (
+                " AND (t.session_number, t.paper_number) IN (SELECT session_number, paper_number"
+                " FROM testimony GROUP BY 1, 2 HAVING COUNT(*) >= ?)"
+            )
+            params.append(int(min_submissions))
         sql = (
             f"SELECT t.id FROM testimony t {join} "
             f"LEFT JOIN documents d ON d.testimony_id = t.id WHERE {where} ORDER BY {order}"

@@ -49,8 +49,18 @@ async def fetch_documents(
     save_dir: Path | None = None,
     random: bool = False,
     categories: list[str] | None = None,
+    bills: list[tuple[int, str]] | None = None,
+    sessions: list[int] | None = None,
+    min_submissions: int | None = None,
 ) -> Counter:
-    ids = store.testimony_without_documents(limit, random=random, categories=categories)
+    ids = store.testimony_without_documents(
+        limit,
+        random=random,
+        categories=categories,
+        bills=bills,
+        sessions=sessions,
+        min_submissions=min_submissions,
+    )
     stats: Counter = Counter()
     if save_dir:
         save_dir.mkdir(parents=True, exist_ok=True)
