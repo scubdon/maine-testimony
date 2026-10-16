@@ -87,3 +87,54 @@ def test_fetch_docs_rejects_malformed_bill(tmp_path):
     )
     assert r.exit_code != 0
     assert "SESSION:PAPER" in r.output
+
+
+def test_position_sample_and_evaluate(tmp_path):
+    import csv
+
+    db = tmp_path / "t.sqlite"
+    store = Store(db)
+    now = "2025-01-01T00:00:00"
+    texts = {
+        1: "I am writing in support of LD 101. Please pass it.",
+        2: "I am writing in support of LD 101. Please pass it.",
+        3: "I am writing in support of LD 101. Please pass it.",
+        4: "I oppose LD 101 because it raises costs.",
+        5: "Thank you for your time. My farm has been here for forty years.",
+        6: "",  # no text layer: never sampled
+    }
+    store.conn.executemany(
+        "INSERT INTO testimony (id, session_number, committee_code, hearing_date, ld,"
+        " paper_number, first_seen_at, last_seen_at) VALUES (?, 132, 'HHS', '2025-02-04', 101,"
+        " 'HP0101', ?, ?)",
+        [(i, now, now) for i in texts],
+    )
+    store.conn.executemany(
+        "INSERT INTO documents (testimony_id, text, fetched_at, error) VALUES (?, ?, ?, ?)",
+        [(i, t, now, None if t else "no_text_layer") for i, t in texts.items()],
+    )
+    store.conn.executemany("INSERT INTO form_letters VALUES (?, 'g1', 3)", [(1,), (2,), (3,)])
+    store.conn.commit()
+
+    out = tmp_path / "positions_todo.csv"
+    args = ["label-sample", "--kind", "positions", "--db", str(db), "--out", str(out)]
+    r = CliRunner().invoke(app, args)
+    assert r.exit_code == 0, r.output
+    rows = list(csv.DictReader(out.open()))
+    assert sorted(int(x["testimony_id"]) for x in rows) == [1, 4, 5]  # group g1 once
+    assert "predicted" not in rows[0]  # no anchoring on the regex's answer
+    assert {x["form_letter_size"] for x in rows} == {"3", "1"}
+    assert all(x["doc_url"].endswith(f"id={x['testimony_id']}") for x in rows)
+
+    gold = {"1": "support", "4": "oppose", "5": "oppose"}  # regex misses 5
+    for x in rows:
+        x["label"] = gold[x["testimony_id"]]
+    with out.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+
+    r = CliRunner().invoke(app, ["evaluate", str(out), "--db", str(db)])
+    assert r.exit_code == 0, r.output
+    assert "n=3  accuracy=66.7%" in r.output
+    assert "oppose -> unknown" in r.output

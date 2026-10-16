@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +14,13 @@ import typer
 from .client import TestimonyClient
 from .crawl import crawl as run_crawl
 from .db import Store
-from .evaluate import evaluate_labels, write_label_sample
+from .evaluate import (
+    evaluate_labels,
+    evaluate_position_labels,
+    is_position_labels,
+    write_label_sample,
+    write_position_sample,
+)
 from .form_letters import run_form_letters
 from .pipeline import export_public, fetch_documents, run_classify, run_positions
 
@@ -163,27 +170,48 @@ def export(
     typer.echo(export_public(Store(db), out))
 
 
+class LabelKind(StrEnum):
+    SUBMITTERS = "submitters"
+    POSITIONS = "positions"
+
+
 @app.command("label-sample")
 def label_sample(
     db: DB = DEFAULT_DB,
-    n: Annotated[int, typer.Option(help="Rows to sample.")] = 300,
-    out: Annotated[Path, typer.Option()] = Path("data/labels/submitters_todo.csv"),
+    kind: Annotated[
+        LabelKind, typer.Option(help="submitters (org field) or positions (documents).")
+    ] = LabelKind.SUBMITTERS,
+    n: Annotated[int | None, typer.Option(help="Rows to sample [300 / 200].")] = None,
+    out: Annotated[Path | None, typer.Option(help="[default: data/labels/<kind>_todo.csv]")] = None,
     seed: Annotated[
         int, typer.Option(help="Sampling seed; use a new one for each fresh evaluation.")
     ] = 13,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing --out.")] = False,
 ) -> None:
-    """Write a random sample of submitter values for hand-labeling."""
+    """Write a random sample of submitter values or documents for hand-labeling."""
+    out = out or Path(f"data/labels/{kind.value}_todo.csv")
     if out.exists() and not force:
         typer.echo(f"{out} exists (it may hold labels); pass --force or a new --out", err=True)
         raise typer.Exit(1)
-    typer.echo(f"wrote {write_label_sample(Store(db), out, n, seed=seed)} rows to {out}")
+    if kind is LabelKind.POSITIONS:
+        written = write_position_sample(Store(db), out, n or 200, seed=seed)
+    else:
+        written = write_label_sample(Store(db), out, n or 300, seed=seed)
+    typer.echo(f"wrote {written} rows to {out}")
 
 
 @app.command()
-def evaluate(labels: Path) -> None:
-    """Score the current classifier against a hand-labeled CSV."""
-    r = evaluate_labels(labels)
+def evaluate(
+    labels: Path,
+    db: Annotated[
+        Path, typer.Option("--db", help="SQLite database path (position labels only).")
+    ] = DEFAULT_DB,
+) -> None:
+    """Score the current classifier (or position regexes) against a hand-labeled CSV."""
+    if is_position_labels(labels):
+        r = evaluate_position_labels(labels, Store(db))
+    else:
+        r = evaluate_labels(labels)
     typer.echo(f"n={r['n']}  accuracy={r['accuracy']:.1%}")
     for cat, m in r["per_class"].items():
         typer.echo(f"  {cat:<13} P={m['precision']:.2f}  R={m['recall']:.2f}  n={m['support']}")

@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 110 tests, ~1s, all HTTP mocked
+pytest -q                          # 122 tests, ~1s, all HTTP mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -25,7 +25,7 @@ mtestimony export                  # -> data/public/
 mtestimony stats
 ```
 
-Every command except `evaluate` takes `--db PATH` (default `data/testimony.sqlite`).
+Every command takes `--db PATH` (default `data/testimony.sqlite`).
 `mtestimony -v <cmd>` turns on INFO logging.
 
 ## Architecture
@@ -144,7 +144,13 @@ pd.read_sql("SELECT position, method, COUNT(*) n FROM positions GROUP BY 1,2", c
 Measure accuracy on fresh samples, not the ones used to tune rules
 (`mtestimony label-sample --seed N --out NEW.csv` / `mtestimony evaluate`). Round 1
 (seed 13, `data/labels/submitters_round1_labeled.csv`) was used for tuning, so its
-score is not a publishable accuracy. `label-sample` refuses to overwrite without `--force`.
+score is not a publishable accuracy. Round 2 (seed 2026) was drawn before the seed fix
+and shares 299/300 rows with round 1, so it is not fresh either. `label-sample` refuses
+to overwrite without `--force`.
+
+Positions: `mtestimony label-sample --kind positions --seed N` samples documents with
+text, one per form-letter group, and hides the prediction; `evaluate` detects the file
+by its `doc_url` column and re-runs the regexes on the stored text (needs `--db`).
 
 ## Known gaps / next steps
 
