@@ -89,10 +89,7 @@ def test_fetch_docs_rejects_malformed_bill(tmp_path):
     assert "SESSION:PAPER" in r.output
 
 
-def test_position_sample_and_evaluate(tmp_path):
-    import csv
-
-    db = tmp_path / "t.sqlite"
+def _seed_positions(db):
     store = Store(db)
     now = "2025-01-01T00:00:00"
     texts = {
@@ -115,6 +112,20 @@ def test_position_sample_and_evaluate(tmp_path):
     )
     store.conn.executemany("INSERT INTO form_letters VALUES (?, 'g1', 3)", [(1,), (2,), (3,)])
     store.conn.commit()
+    store.close()
+
+
+def _sampled_ids(path) -> list[int]:
+    import csv
+
+    return sorted(int(x["testimony_id"]) for x in csv.DictReader(path.open()))
+
+
+def test_position_sample_and_evaluate(tmp_path):
+    import csv
+
+    db = tmp_path / "t.sqlite"
+    _seed_positions(db)
 
     out = tmp_path / "positions_todo.csv"
     args = ["label-sample", "--kind", "positions", "--db", str(db), "--out", str(out)]
@@ -138,3 +149,59 @@ def test_position_sample_and_evaluate(tmp_path):
     assert r.exit_code == 0, r.output
     assert "n=3  accuracy=66.7%" in r.output
     assert "oppose -> unknown" in r.output
+
+
+def test_position_sample_exclude_drops_whole_form_letter_group(tmp_path):
+    db = tmp_path / "t.sqlite"
+    _seed_positions(db)
+    earlier = tmp_path / "round1.csv"
+    earlier.write_text("testimony_id,label\n2,support\n5,oppose\n")  # 2 is in group g1
+
+    out = tmp_path / "round3.csv"
+    args = ["label-sample", "--kind", "positions", "--db", str(db), "--out", str(out)]
+    r = CliRunner().invoke(app, [*args, "--exclude", str(earlier)])
+    assert r.exit_code == 0, r.output
+    assert "skipped 2 already-labeled ids" in r.output
+    assert _sampled_ids(out) == [4]  # not 1 or 3: copies of a labeled letter
+
+
+def test_label_sample_exclude_keeps_new_sample_held_out(tmp_path):
+    db = tmp_path / "t.sqlite"
+    store = Store(db)
+    now = "2025-01-01T00:00:00"
+    store.conn.executemany(
+        "INSERT INTO testimony (id, session_number, committee_code, hearing_date,"
+        " organization, first_seen_at, last_seen_at) VALUES (?, 132, 'HHS', '2025-02-04', ?, ?, ?)",
+        [(i, f"Org {i}", now, now) for i in range(1, 41)],
+    )
+    store.conn.executemany(
+        "INSERT INTO submitters (testimony_id, category, rule) VALUES (?, 'organization', 'x')",
+        [(i,) for i in range(1, 41)],
+    )
+    store.conn.commit()
+    store.close()
+
+    base = ["label-sample", "--db", str(db), "--n", "15"]
+    r1, r2, r3 = (tmp_path / f"r{k}.csv" for k in (1, 2, 3))
+    assert CliRunner().invoke(app, [*base, "--out", str(r1), "--seed", "1"]).exit_code == 0
+    r = CliRunner().invoke(app, [*base, "--out", str(r2), "--seed", "2", "--exclude", str(r1)])
+    assert r.exit_code == 0, r.output
+    assert not set(_sampled_ids(r1)) & set(_sampled_ids(r2))
+
+    # Two exclude files leave 10 of 40 rows: the sample shrinks rather than reusing labels.
+    args = [*base, "--out", str(r3), "--seed", "3", "--exclude", str(r1), "--exclude", str(r2)]
+    r = CliRunner().invoke(app, args)
+    assert r.exit_code == 0, r.output
+    assert len(_sampled_ids(r3)) == 10
+    assert not set(_sampled_ids(r3)) & (set(_sampled_ids(r1)) | set(_sampled_ids(r2)))
+
+
+def test_label_sample_exclude_needs_testimony_id_column(tmp_path):
+    bad = tmp_path / "notes.csv"
+    bad.write_text("organization,label\nOrg,organization\n")
+    out = tmp_path / "todo.csv"
+    args = ["label-sample", "--db", str(tmp_path / "t.sqlite"), "--out", str(out)]
+    r = CliRunner().invoke(app, [*args, "--exclude", str(bad)])
+    assert r.exit_code == 1
+    assert "no testimony_id column" in r.output
+    assert not out.exists()

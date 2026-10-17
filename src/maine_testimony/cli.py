@@ -18,6 +18,7 @@ from .evaluate import (
     evaluate_labels,
     evaluate_position_labels,
     is_position_labels,
+    read_labeled_ids,
     write_label_sample,
     write_position_sample,
 )
@@ -211,17 +212,32 @@ def label_sample(
         int, typer.Option(help="Sampling seed; use a new one for each fresh evaluation.")
     ] = 13,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing --out.")] = False,
+    exclude: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--exclude",
+            exists=True,
+            dir_okay=False,
+            help="Earlier label CSV whose testimony_ids to skip (repeatable).",
+        ),
+    ] = None,
 ) -> None:
     """Write a random sample of submitter values or documents for hand-labeling."""
     out = out or Path(f"data/labels/{kind.value}_todo.csv")
     if out.exists() and not force:
         typer.echo(f"{out} exists (it may hold labels); pass --force or a new --out", err=True)
         raise typer.Exit(1)
+    try:
+        skip = read_labeled_ids(exclude or [])
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from None
     if kind is LabelKind.POSITIONS:
-        written = write_position_sample(Store(db), out, n or 200, seed=seed)
+        written = write_position_sample(Store(db), out, n or 200, seed=seed, exclude=skip)
     else:
-        written = write_label_sample(Store(db), out, n or 300, seed=seed)
-    typer.echo(f"wrote {written} rows to {out}")
+        written = write_label_sample(Store(db), out, n or 300, seed=seed, exclude=skip)
+    note = f" (skipped {len(skip)} already-labeled ids)" if skip else ""
+    typer.echo(f"wrote {written} rows to {out}{note}")
 
 
 @app.command()

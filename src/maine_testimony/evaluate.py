@@ -20,6 +20,7 @@ import csv
 import random
 import re
 from collections import Counter
+from collections.abc import Collection, Iterable
 from pathlib import Path
 
 from .classify import Category, classify
@@ -31,7 +32,21 @@ from .positions import Position, classify_position
 OPENING_CHARS = 400
 
 
-def write_label_sample(store: Store, out: Path, n: int = 300, seed: int = 13) -> int:
+def read_labeled_ids(paths: Iterable[Path]) -> set[int]:
+    """``testimony_id``s already in earlier label files, to keep a new sample held out."""
+    ids: set[int] = set()
+    for path in paths:
+        with path.open(newline="") as f:
+            reader = csv.DictReader(f)
+            if "testimony_id" not in (reader.fieldnames or []):
+                raise ValueError(f"{path} has no testimony_id column")
+            ids.update(int(r["testimony_id"]) for r in reader if r["testimony_id"].strip())
+    return ids
+
+
+def write_label_sample(
+    store: Store, out: Path, n: int = 300, seed: int = 13, exclude: Collection[int] = ()
+) -> int:
     # Seeded sample in Python: SQLite's RANDOM() can't be seeded, and adding the seed to
     # a hash key in ORDER BY only rotates one fixed order (every seed gave the same rows).
     rows = store.conn.execute(
@@ -39,6 +54,7 @@ def write_label_sample(store: Store, out: Path, n: int = 300, seed: int = 13) ->
            FROM testimony t JOIN submitters s ON s.testimony_id = t.id
            ORDER BY t.id"""
     ).fetchall()
+    rows = [r for r in rows if r["id"] not in exclude]
     rows = random.Random(seed).sample(rows, min(n, len(rows)))
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as f:
@@ -49,11 +65,15 @@ def write_label_sample(store: Store, out: Path, n: int = 300, seed: int = 13) ->
     return len(rows)
 
 
-def write_position_sample(store: Store, out: Path, n: int = 200, seed: int = 13) -> int:
+def write_position_sample(
+    store: Store, out: Path, n: int = 200, seed: int = 13, exclude: Collection[int] = ()
+) -> int:
     """Sample documents with text, one per form-letter group, for position labeling.
 
     One row per group keeps a single mass mailing from filling the sample, so scores
     describe distinct letters; ``form_letter_size`` allows re-weighting per submission.
+    ``exclude`` drops already-labeled documents AND their whole form-letter group: another
+    copy of a labeled letter is not held out.
     """
     rows = store.conn.execute(
         """SELECT d.testimony_id, d.text, t.ld, t.paper_number, f.group_id, f.group_size
@@ -62,9 +82,11 @@ def write_position_sample(store: Store, out: Path, n: int = 200, seed: int = 13)
            WHERE d.error IS NULL AND d.text <> ''
            ORDER BY d.testimony_id"""
     ).fetchall()
-    seen: set[str] = set()
+    seen = {r["group_id"] for r in rows if r["testimony_id"] in exclude} - {None}
     distinct = []
     for r in rows:
+        if r["testimony_id"] in exclude:
+            continue
         if r["group_id"] is not None:
             if r["group_id"] in seen:
                 continue

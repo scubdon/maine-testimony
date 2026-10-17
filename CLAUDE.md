@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 149 tests, ~1s, all HTTP + Claude API mocked
+pytest -q                          # 152 tests, ~1s, all HTTP + Claude API mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -143,11 +143,15 @@ town fuzzy `score_cutoff=88` (single words, >=5 chars), org clustering
 
 ```python
 import sqlite3, pandas as pd
+
 con = sqlite3.connect("data/testimony.sqlite")
 pd.read_sql("SELECT category, rule, COUNT(*) n FROM submitters GROUP BY 1,2 ORDER BY n DESC", con)
-pd.read_sql("""SELECT t.organization, COUNT(*) n FROM submitters s
+pd.read_sql(
+    """SELECT t.organization, COUNT(*) n FROM submitters s
                JOIN testimony t ON t.id = s.testimony_id
-               WHERE s.rule = 'fallback_multiword' GROUP BY 1 ORDER BY n DESC LIMIT 50""", con)
+               WHERE s.rule = 'fallback_multiword' GROUP BY 1 ORDER BY n DESC LIMIT 50""",
+    con,
+)
 pd.read_sql("SELECT position, method, COUNT(*) n FROM positions GROUP BY 1,2", con)
 ```
 
@@ -156,15 +160,22 @@ Measure accuracy on fresh samples, not the ones used to tune rules
 (seed 13, `data/labels/submitters_round1_labeled.csv`) was used for tuning, so its
 score is not a publishable accuracy. Round 2 (seed 2026) was drawn before the seed fix
 and shares 299/300 rows with round 1, so it is not fresh either. `label-sample` refuses
-to overwrite without `--force`.
+to overwrite without `--force`. Pass every earlier label file as `--exclude FILE`
+(repeatable) so a new round can't reuse labeled `testimony_id`s.
 
 Positions: `mtestimony label-sample --kind positions --seed N` samples documents with
 text, one per form-letter group, and hides the prediction; `evaluate` detects the file
 by its `doc_url` column and re-runs the regexes on the stored text (needs `--db`).
+With `--exclude`, a labeled document's whole form-letter group is skipped too.
+
+Round 3 (drawn 2026-10-17, excludes every earlier file, zero overlap) is the first
+publishable held-out set: `submitters_round3_todo.csv` (seed 31, n=300) and
+`positions_round3_todo.csv` (seed 47, n=200). Don't tune rules or the prompt on it.
 
 ## Known gaps / next steps
 
-- Hand-label 300 submitters + ~200 documents; report real precision/recall.
+- Hand-label the round-3 files (above), then `evaluate` them (positions with and without
+  `--llm`) and report real precision/recall.
 - LLM fallback for `unknown` positions: one held-out check on `positions_round1_todo.csv`
   (n=196, 2026-10-16): accuracy 75.0% -> 91.8%, precision when committed 99.3% -> 97.8%,
   positioned letters missed 48/191 -> 12/191. The LLM's own commitments were 35/38 correct.
