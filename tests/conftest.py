@@ -99,3 +99,10 @@ def store():
     s = Store(":memory:")
     yield s
     s.close()
+
+
+@pytest.fixture(autouse=True)
+def _no_llm_credentials(monkeypatch):
+    """Tests never call the Claude API: hide any key so ClaudePositions.from_env() is None."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)

@@ -4,7 +4,7 @@ Maine testimony nearly always states the position in its first lines, often in a
 standard header ("Testimony in Support of LD 1234", "Neither For Nor Against").
 This first pass is a transparent, ordered regex classifier that records the
 evidence span it matched. Documents it cannot decide are labeled ``unknown`` and
-are the candidates for an LLM or manual pass (see README, "Roadmap").
+go to the optional LLM fallback in ``llm_positions`` (``mtestimony positions --llm``).
 """
 
 from __future__ import annotations
@@ -89,11 +89,16 @@ def _snippet(text: str, start: int, end: int, pad: int = 60) -> str:
     return text[max(0, start - pad) : end + pad].strip()
 
 
+def head_text(text: str) -> str:
+    """The whitespace-collapsed opening that every classifier (regex or LLM) reads."""
+    return re.sub(r"\s+", " ", text)[:HEAD_CHARS]
+
+
 def classify_position(text: str | None) -> PositionResult:
     """Classify a document's stated position from its text."""
     if not text or not text.strip():
         return PositionResult(Position.UNKNOWN, method="no_text")
-    head = re.sub(r"\s+", " ", text)[:HEAD_CHARS]
+    head = head_text(text)
 
     # "Neither for nor against" contains words that look like both; check it first.
     for pat in _COMPILED[Position.NEITHER]:

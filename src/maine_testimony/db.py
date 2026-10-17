@@ -83,6 +83,21 @@ CREATE TABLE IF NOT EXISTS positions (
     char_offset  INTEGER
 );
 
+-- Cache of raw LLM answers for regex-unknown documents (`positions --llm`). NOT derived:
+-- never rebuilt, so reruns don't re-bill. Keyed on the exact text sent, the model and a
+-- hash of the prompt; the quote check runs at apply time in llm_positions.
+CREATE TABLE IF NOT EXISTS llm_positions (
+    testimony_id   INTEGER NOT NULL REFERENCES testimony(id),
+    text_sha256    TEXT NOT NULL,   -- sha256 of the head text sent to the model
+    model          TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    position       TEXT NOT NULL,   -- support | oppose | neither | unknown, as answered
+    evidence       TEXT,            -- model's quote, unverified
+    created_at     TEXT NOT NULL,
+    PRIMARY KEY (testimony_id, text_sha256, model, prompt_version)
+);
+CREATE INDEX IF NOT EXISTS ix_llm_positions_text ON llm_positions(text_sha256);
+
 CREATE TABLE IF NOT EXISTS form_letters (
     testimony_id INTEGER PRIMARY KEY REFERENCES testimony(id),
     group_id     TEXT NOT NULL,     -- one id per cluster of near-identical texts on a bill
@@ -179,7 +194,35 @@ class Store:
         )
         self.conn.commit()
 
+    def save_llm_positions(
+        self,
+        rows: Iterable[tuple[int, str]],
+        *,
+        model: str,
+        prompt_version: str,
+        position: str,
+        evidence: str | None,
+    ) -> None:
+        """Cache one answer for every ``(testimony_id, text_sha256, ...)`` that shares it."""
+        now = _now()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO llm_positions VALUES (?,?,?,?,?,?,?)",
+            [(tid, sha, model, prompt_version, position, evidence, now) for tid, sha in rows],
+        )
+        self.conn.commit()
+
     # ---------------------------------------------------------------- reads
+    def llm_position(
+        self, testimony_id: int, text_sha256: str, model: str, prompt_version: str
+    ) -> sqlite3.Row | None:
+        """A cached answer for this document, else one for any document with the same text."""
+        return self.conn.execute(
+            """SELECT position, evidence FROM llm_positions
+               WHERE text_sha256 = ? AND model = ? AND prompt_version = ?
+               ORDER BY testimony_id = ? DESC LIMIT 1""",
+            (text_sha256, model, prompt_version, testimony_id),
+        ).fetchone()
+
     def hearing_fetched_at(self, session: int, committee: str, d: date) -> datetime | None:
         row = self.conn.execute(
             "SELECT fetched_at FROM hearings WHERE session_number=? AND committee_code=? "

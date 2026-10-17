@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 122 tests, ~1s, all HTTP mocked
+pytest -q                          # 146 tests, ~1s, all HTTP + Claude API mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -19,7 +19,7 @@ mtestimony crawl -s 132 --per-committee 2
 mtestimony classify
 mtestimony fetch-docs --orgs-only --limit 100
 mtestimony fetch-docs --bill 132:SP0262          # or: -s 132 --min-submissions 300
-mtestimony positions
+mtestimony positions                # --llm: Claude for regex-unknowns (opt-in, cached)
 mtestimony form-letters
 mtestimony export                  # -> data/public/
 mtestimony stats
@@ -45,6 +45,7 @@ SQLite (all) -> pipeline.export_public -> data/public/
 | `classify.py` | free-text `organization` field -> category + the rule that fired |
 | `orgs.py` | org-name normalization (`org_key`) + fuzzy clustering |
 | `positions.py` | PDF text extraction (pypdf) + ordered regex support/oppose/neither |
+| `llm_positions.py` | opt-in Claude fallback for regex `unknown`s; `ClaudePositions` is the only API caller; answers cached in `llm_positions` |
 | `form_letters.py` | near-duplicate texts per bill (rapidfuzz `cdist` + union-find) |
 | `pipeline.py` | runs derived steps; `export_public` builds the privacy-safe files |
 | `evaluate.py` | hand-label sampling + precision/recall scoring |
@@ -109,6 +110,12 @@ Base `https://legislature.maine.gov/bills/`:
   unambiguous ones go in `org_aliases.csv`.
 - Positions: NFNA checked first; then earliest support/oppose match wins; sponsor
   language counts as support (`regex_sponsor`). Always store evidence snippet.
+- LLM fallback (`positions --llm`): only regex `unknown` docs, only `head_text()` (first
+  `HEAD_CHARS`) is sent. `llm_positions` is a cache, NOT derived: never delete it casually,
+  it is what keeps reruns from re-billing. Its key includes `PROMPT_VERSION` (a hash of the
+  prompt + schema), so editing the prompt re-asks everything. An answer whose evidence
+  quote isn't found in the text becomes `unknown` / `llm_unverified`. Tests use fakes; the
+  autouse conftest fixture hides API keys. Don't tune the prompt on the held-out labels.
 
 ## Making common changes
 
@@ -155,7 +162,10 @@ by its `doc_url` column and re-runs the regexes on the stored text (needs `--db`
 ## Known gaps / next steps
 
 - Hand-label 300 submitters + ~200 documents; report real precision/recall.
-- LLM fallback for `unknown` positions (~20% of documents), validated on labels.
+- LLM fallback for `unknown` positions: one held-out check on `positions_round1_todo.csv`
+  (n=196, 2026-10-16): accuracy 75.0% -> 91.8%, precision when committed 99.3% -> 97.8%,
+  positioned letters missed 48/191 -> 12/191. The LLM's own commitments were 35/38 correct.
+  These labels are now spent for prompt work: any prompt change needs a fresh labeled sample.
 - Scanned PDFs (~1%) have no text layer; no OCR.
 - Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,
   hence `--orgs-only` and the per-run `--limit` in `.github/workflows/scrape.yml`.

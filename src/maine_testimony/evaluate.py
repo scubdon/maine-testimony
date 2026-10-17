@@ -25,6 +25,7 @@ from pathlib import Path
 from .classify import Category, classify
 from .client import DOC_URL
 from .db import Store
+from .llm_positions import LLMFallback
 from .positions import Position, classify_position
 
 OPENING_CHARS = 400
@@ -110,10 +111,14 @@ def evaluate_labels(path: Path) -> dict:
     return _score(pairs, valid)
 
 
-def evaluate_position_labels(path: Path, store: Store) -> dict:
-    """Re-run the *current* position regexes on the labeled documents' text and score them."""
+def evaluate_position_labels(path: Path, store: Store, llm: LLMFallback | None = None) -> dict:
+    """Re-run the *current* position regexes on the labeled documents' text and score them.
+
+    With ``llm``, regex-unknown documents go through the LLM fallback (cache first), as in
+    ``mtestimony positions --llm``.
+    """
     valid = {p.value for p in Position}
-    pairs: list[tuple[str, str, str]] = []
+    labeled: list[tuple[str, int, str]] = []
     with path.open() as f:
         for row in csv.DictReader(f):
             label = (row.get("label") or "").strip().lower()
@@ -124,9 +129,29 @@ def evaluate_position_labels(path: Path, store: Store) -> dict:
             ).fetchone()
             if doc is None:
                 continue
-            pred = classify_position(doc["text"]).position.value
-            pairs.append((label, pred, row["testimony_id"]))
-    return _score(pairs, valid)
+            labeled.append((label, int(row["testimony_id"]), doc["text"]))
+    results = {tid: classify_position(text) for _, tid, text in labeled}
+    if llm is not None:
+        results.update(
+            llm.resolve(
+                (tid, text)
+                for _, tid, text in labeled
+                if results[tid].position is Position.UNKNOWN
+                and results[tid].method == "regex_no_match"
+            )
+        )
+    pairs = [(label, results[tid].position.value, str(tid)) for label, tid, _ in labeled]
+    report = _score(pairs, valid)
+    unknown = Position.UNKNOWN.value
+    committed = [(g, p) for g, p, _ in pairs if p != unknown]
+    report["committed_precision"] = (
+        sum(g == p for g, p in committed) / len(committed) if committed else 0.0
+    )
+    report["committed"] = len(committed)
+    report["positioned"] = sum(g != unknown for g, _, _ in pairs)
+    report["missed"] = sum(g != unknown and p == unknown for g, p, _ in pairs)
+    report["methods"] = Counter(results[tid].method for _, tid, _ in labeled)
+    return report
 
 
 def _score(pairs: list[tuple[str, str, str]], valid: set[str]) -> dict:

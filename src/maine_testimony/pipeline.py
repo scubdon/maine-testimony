@@ -12,8 +12,9 @@ import pandas as pd
 from .classify import ORG_LIKE, Category, classify
 from .client import DOC_URL, TestimonyClient, gather_limited
 from .db import Store
+from .llm_positions import LLMFallback
 from .orgs import cluster_orgs
-from .positions import classify_position, pdf_text
+from .positions import Position, classify_position, pdf_text
 
 log = logging.getLogger(__name__)
 
@@ -100,12 +101,22 @@ async def fetch_documents(
 
 
 # --------------------------------------------------------------- positions
-def run_positions(store: Store) -> Counter:
+def run_positions(store: Store, llm: LLMFallback | None = None) -> Counter:
+    """Regex positions for every document; ``llm`` resolves the regex-unknown ones it can."""
     rows = store.conn.execute("SELECT testimony_id, text FROM documents").fetchall()
-    out = []
-    for r in rows:
-        p = classify_position(r["text"])
-        out.append((r["testimony_id"], p.position.value, p.method, p.evidence, p.char_offset))
+    results = {r["testimony_id"]: classify_position(r["text"]) for r in rows}
+    if llm is not None:
+        texts = {r["testimony_id"]: r["text"] for r in rows}
+        results.update(
+            llm.resolve(
+                (tid, texts[tid])
+                for tid, p in results.items()
+                if p.position is Position.UNKNOWN and p.method == "regex_no_match"
+            )
+        )
+    out = [
+        (tid, p.position.value, p.method, p.evidence, p.char_offset) for tid, p in results.items()
+    ]
     store.conn.execute("DELETE FROM positions")
     store.conn.executemany("INSERT INTO positions VALUES (?,?,?,?,?)", out)
     store.conn.commit()

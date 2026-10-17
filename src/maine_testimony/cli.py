@@ -22,6 +22,7 @@ from .evaluate import (
     write_position_sample,
 )
 from .form_letters import run_form_letters
+from .llm_positions import ClaudePositions, LLMFallback
 from .pipeline import export_public, fetch_documents, run_classify, run_positions
 
 app = typer.Typer(add_completion=False, help="Maine Legislature testimony dataset pipeline.")
@@ -143,13 +144,36 @@ def fetch_docs(
     asyncio.run(go())
 
 
+LLM = Annotated[
+    bool,
+    typer.Option(
+        "--llm",
+        help="Send regex-unknown documents to Claude (needs ANTHROPIC_API_KEY; answers are "
+        "cached in the DB, and without a key only cached answers are used).",
+    ),
+]
+LLM_LIMIT = Annotated[int | None, typer.Option(help="With --llm: at most N API calls this run.")]
+
+
+def _llm_fallback(store: Store, enabled: bool, limit: int | None) -> LLMFallback | None:
+    return LLMFallback(store, ClaudePositions.from_env(), limit=limit) if enabled else None
+
+
+def _echo_llm_stats(fallback: LLMFallback | None) -> None:
+    if fallback is not None:
+        typer.echo("llm: " + ", ".join(f"{k}={v}" for k, v in sorted(fallback.stats.items())))
+
+
 @app.command()
-def positions(db: DB = DEFAULT_DB) -> None:
+def positions(db: DB = DEFAULT_DB, llm: LLM = False, llm_limit: LLM_LIMIT = None) -> None:
     """Label each downloaded document support / oppose / neither / unknown."""
-    counts = run_positions(Store(db))
+    store = Store(db)
+    fallback = _llm_fallback(store, llm, llm_limit)
+    counts = run_positions(store, llm=fallback)
     total = sum(counts.values()) or 1
     for pos, n in counts.most_common():
         typer.echo(f"{pos:<10}{n:>8}  {n / total:6.1%}")
+    _echo_llm_stats(fallback)
 
 
 @app.command("form-letters")
@@ -206,17 +230,29 @@ def evaluate(
     db: Annotated[
         Path, typer.Option("--db", help="SQLite database path (position labels only).")
     ] = DEFAULT_DB,
+    llm: LLM = False,
 ) -> None:
     """Score the current classifier (or position regexes) against a hand-labeled CSV."""
+    fallback = None
     if is_position_labels(labels):
-        r = evaluate_position_labels(labels, Store(db))
+        store = Store(db)
+        fallback = _llm_fallback(store, llm, None)
+        r = evaluate_position_labels(labels, store, llm=fallback)
     else:
         r = evaluate_labels(labels)
     typer.echo(f"n={r['n']}  accuracy={r['accuracy']:.1%}")
+    if "committed" in r:
+        typer.echo(
+            f"  committed={r['committed']}  precision when committed="
+            f"{r['committed_precision']:.1%}  missed {r['missed']} of {r['positioned']} "
+            f"positioned letters"
+        )
+        typer.echo("  methods: " + ", ".join(f"{k}={v}" for k, v in r["methods"].most_common()))
     for cat, m in r["per_class"].items():
         typer.echo(f"  {cat:<13} P={m['precision']:.2f}  R={m['recall']:.2f}  n={m['support']}")
     for pair, k, ex in r["top_confusions"]:
         typer.echo(f"  {pair:<28} x{k}  e.g. {ex}")
+    _echo_llm_stats(fallback)
 
 
 @app.command()
@@ -231,6 +267,7 @@ def stats(db: DB = DEFAULT_DB) -> None:
         "documents",
         "submitters",
         "positions",
+        "llm_positions",
         "form_letters",
     ):
         typer.echo(f"{t:<12}{store.count(t):>9}")

@@ -117,6 +117,18 @@ got a label, and a random spot check of 40 labels found all 40 correct. Most of 
 remainder are letters that never state a position outright, such as budget testimony.
 A proper hand-labeled evaluation is on the roadmap.
 
+`mtestimony positions --llm` (opt-in, needs `ANTHROPIC_API_KEY` and `pip install -e
+".[llm]"`) sends the documents the regexes leave `unknown` to Claude Haiku: only the
+first 3,000 characters, with output constrained to support / oppose / neither / unknown.
+The model must quote the sentence that states the stance, and the quote is checked
+against the text; an answer without a matching quote stays `unknown`
+(`llm_unverified`). Answers are cached in the database by text hash, so reruns and
+identical form letters don't cost extra; `--llm-limit N` caps API calls per run.
+Exports carry `position_method = llm`, never the document text.
+On the held-out sample of 196 hand-labeled letters (one per form-letter group),
+accuracy went from 75.0% (regex only) to 91.8%, and missed positions from 48 to 12 of
+191; precision when a label is given went from 99.3% to 97.8%.
+
 ### Form-letter detection (`form_letters.py`)
 
 For each bill, texts are normalized, with the submitter's own name and town tokens removed
@@ -183,7 +195,7 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
 
 - [ ] Full historical crawl (126th–133rd)
 - [ ] Hand-label 300 submitters and 200 documents; publish accuracy
-- [ ] LLM fallback for `unknown` positions, validated against the hand labels
+- [x] LLM fallback for `unknown` positions, validated against the hand labels
 - [ ] Join bill outcomes (passed, died, vetoed). Status pages are disallowed by
       robots.txt, so this needs another source.
 - [ ] Findings write-up and interactive charts (GitHub Pages)
