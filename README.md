@@ -123,7 +123,9 @@ first 3,000 characters, with output constrained to support / oppose / neither / 
 The model must quote the sentence that states the stance, and the quote is checked
 against the text; an answer without a matching quote stays `unknown`
 (`llm_unverified`). Answers are cached in the database by text hash, so reruns and
-identical form letters don't cost extra; `--llm-limit N` caps API calls per run.
+identical form letters don't cost extra; `--llm-limit N` caps API calls per run. The
+rare letters the model's safety filters decline (5 of 6,758 calls on the 132nd) are
+cached as refusals and stay `unknown` (`llm_refused`).
 Exports carry `position_method = llm`, never the document text.
 On the held-out sample of 196 hand-labeled letters (one per form-letter group),
 accuracy went from 75.0% (regex only) to 91.8%, and missed positions from 48 to 12 of

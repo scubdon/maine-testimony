@@ -18,6 +18,7 @@ from maine_testimony.llm_positions import (
     LLMAnswer,
     LLMError,
     LLMFallback,
+    LLMRefusal,
     apply_answer,
     locate_quote,
 )
@@ -36,15 +37,23 @@ class FakeClassifier:
     model = MODEL
     prompt_version = PROMPT_VERSION
 
-    def __init__(self, answers: dict[str, LLMAnswer] | None = None, fail: bool = False):
+    def __init__(
+        self,
+        answers: dict[str, LLMAnswer] | None = None,
+        fail: bool = False,
+        refuse: bool = False,
+    ):
         self.answers = answers or {}
         self.fail = fail
+        self.refuse = refuse
         self.calls: list[str] = []
 
     def classify(self, head: str) -> LLMAnswer:
         self.calls.append(head)
         if self.fail:
-            raise LLMError("stop_reason=refusal")
+            raise LLMError("RateLimitError: still rate limited")
+        if self.refuse:
+            raise LLMRefusal("bio")
         for needle, answer in self.answers.items():
             if needle in head:
                 return answer
@@ -179,6 +188,54 @@ def test_limit_and_errors_are_not_cached(store):
     assert store.count("llm_positions") == limited.stats["answered"]
 
 
+def test_refusals_are_cached_and_not_re_asked(store):
+    store.save_document(2, text=IMPLICIT)
+    store.save_document(3, text=IMPLICIT)
+    fallback = LLMFallback(store, FakeClassifier(refuse=True))
+    run_positions(store, llm=fallback)
+    assert fallback.stats == {"called": 1, "refused": 2}
+    assert _positions(store)[2] == ("unknown", "llm_refused", None)
+    rows = store.conn.execute("SELECT position, refusal_category FROM llm_positions").fetchall()
+    assert [tuple(r) for r in rows] == [("refused", "bio")] * 2
+
+    again = FakeClassifier(OPPOSE_IMPLICIT)
+    run_positions(store, llm=LLMFallback(store, again))
+    assert again.calls == []
+    assert _positions(store)[3][:2] == ("unknown", "llm_refused")
+
+
+def test_old_cache_table_gets_refusal_column(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.sqlite"
+    con = sqlite3.connect(db)
+    con.execute(
+        """CREATE TABLE llm_positions (testimony_id INTEGER NOT NULL, text_sha256 TEXT NOT NULL,
+           model TEXT NOT NULL, prompt_version TEXT NOT NULL, position TEXT NOT NULL,
+           evidence TEXT, created_at TEXT NOT NULL,
+           PRIMARY KEY (testimony_id, text_sha256, model, prompt_version))"""
+    )
+    con.execute("INSERT INTO llm_positions VALUES (2, 'h', 'm', 'v', 'oppose', 'q', 'x')")
+    con.commit()
+    con.close()
+
+    store = Store(db)
+    store.save_llm_positions(
+        [(3, "h2")],
+        model="m",
+        prompt_version="v",
+        position="refused",
+        evidence=None,
+        refusal_category="cyber",
+    )
+    assert store.llm_position(2, "h", "m", "v")["position"] == "oppose"
+    rows = store.conn.execute(
+        "SELECT testimony_id, refusal_category FROM llm_positions ORDER BY 1"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [(2, None), (3, "cyber")]
+    Store(db).close()  # reopening doesn't try to add the column again
+
+
 def test_unexpected_errors_stop_the_run(store):
     class Broken(FakeClassifier):
         def classify(self, head):
@@ -283,6 +340,15 @@ def test_claude_positions_bad_answers_raise_llm_error(resp):
     clf = ClaudePositions(SimpleNamespace(messages=FakeMessages(resp)))
     with pytest.raises(LLMError):
         clf.classify(VAGUE)
+
+
+def test_claude_positions_refusal_carries_category():
+    resp = _response(stop_reason="refusal")
+    resp.stop_details = SimpleNamespace(type="refusal", category="bio", explanation="")
+    clf = ClaudePositions(SimpleNamespace(messages=FakeMessages(resp)))
+    with pytest.raises(LLMRefusal) as exc:
+        clf.classify(VAGUE)
+    assert exc.value.category == "bio"
 
 
 def test_from_env_without_key_is_none():

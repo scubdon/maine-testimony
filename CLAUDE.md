@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 146 tests, ~1s, all HTTP + Claude API mocked
+pytest -q                          # 149 tests, ~1s, all HTTP + Claude API mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -114,7 +114,10 @@ Base `https://legislature.maine.gov/bills/`:
   `HEAD_CHARS`) is sent. `llm_positions` is a cache, NOT derived: never delete it casually,
   it is what keeps reruns from re-billing. Its key includes `PROMPT_VERSION` (a hash of the
   prompt + schema), so editing the prompt re-asks everything. An answer whose evidence
-  quote isn't found in the text becomes `unknown` / `llm_unverified`. Tests use fakes; the
+  quote isn't found in the text becomes `unknown` / `llm_unverified`. Safety refusals
+  (Haiku has no server-side fallback) are cached as `refused` + `refusal_category` and apply
+  as `unknown` / `llm_refused`; transient errors are not cached. `Store._migrate` adds
+  columns to existing DBs. Tests use fakes; the
   autouse conftest fixture hides API keys. Don't tune the prompt on the held-out labels.
 
 ## Making common changes

@@ -6,7 +6,9 @@ the ``llm_positions`` table, keyed on the exact text sent plus the model and a h
 prompt, so reruns (and identical form letters) never re-bill. The cache holds the raw
 answer; whether its evidence quote really occurs in the text is checked every time it is
 applied, and an answer whose quote can't be found is downgraded to ``unknown``
-(method ``llm_unverified``).
+(method ``llm_unverified``). Safety-classifier refusals are cached too (position
+``refused``, with the API's category), so reruns don't re-ask; they apply as ``unknown``
+(method ``llm_refused``).
 
 ``ClaudePositions`` is the only code here that touches the network. Tests pass a fake
 with the same ``model`` / ``prompt_version`` / ``classify`` interface.
@@ -32,6 +34,7 @@ log = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-5-5"
 MAX_EVIDENCE = 300
+REFUSED = "refused"  # cache-only outcome, never a Position
 
 SYSTEM = """\
 You read the opening of written testimony submitted to a Maine Legislature committee \
@@ -81,7 +84,15 @@ class LLMAnswer:
 
 
 class LLMError(RuntimeError):
-    """One document could not be classified (refusal, truncation, transient API error)."""
+    """One document could not be classified (truncation, transient API error). Not cached."""
+
+
+class LLMRefusal(LLMError):
+    """The model's safety classifiers declined the document. Cached: a retry would repeat it."""
+
+    def __init__(self, category: str | None) -> None:
+        super().__init__(f"stop_reason=refusal category={category}")
+        self.category = category
 
 
 class PositionClassifier(Protocol):
@@ -131,6 +142,8 @@ class ClaudePositions:
             anthropic.InternalServerError,
         ) as e:  # still failing after the SDK's retries; auth/400 errors propagate and stop
             raise LLMError(f"{type(e).__name__}: {e}") from e
+        if resp.stop_reason == "refusal":
+            raise LLMRefusal(getattr(getattr(resp, "stop_details", None), "category", None))
         if resp.stop_reason != "end_turn":
             raise LLMError(f"stop_reason={resp.stop_reason}")
         text = next((b.text for b in resp.content if b.type == "text"), None)
@@ -171,6 +184,8 @@ def locate_quote(head: str, quote: str) -> tuple[int, int] | None:
 
 def apply_answer(head: str, position: str, evidence: str | None) -> PositionResult:
     """Turn a cached raw answer into a result, keeping it only if its quote is in the text."""
+    if position == REFUSED:
+        return PositionResult(Position.UNKNOWN, method="llm_refused")
     pos = Position(position)
     if pos is Position.UNKNOWN:
         return PositionResult(Position.UNKNOWN, method="llm")
@@ -239,6 +254,21 @@ class LLMFallback:
                 head, tids = pending[sha]
                 try:
                     answer = fut.result()
+                except LLMRefusal as e:
+                    log.warning("LLM refused testimony %s: category=%s", tids[0], e.category)
+                    self.store.save_llm_positions(
+                        [(t, sha) for t in tids],
+                        model=self.model,
+                        prompt_version=self.prompt_version,
+                        position=REFUSED,
+                        evidence=None,
+                        refusal_category=e.category,
+                    )
+                    self.stats["called"] += 1
+                    self.stats["refused"] += len(tids)
+                    for t in tids:
+                        out[t] = apply_answer(head, REFUSED, None)
+                    continue
                 except LLMError as e:
                     log.warning("LLM failed for testimony %s: %s", tids[0], e)
                     self.stats["errors"] += len(tids)

@@ -91,9 +91,10 @@ CREATE TABLE IF NOT EXISTS llm_positions (
     text_sha256    TEXT NOT NULL,   -- sha256 of the head text sent to the model
     model          TEXT NOT NULL,
     prompt_version TEXT NOT NULL,
-    position       TEXT NOT NULL,   -- support | oppose | neither | unknown, as answered
+    position       TEXT NOT NULL,   -- support | oppose | neither | unknown | refused
     evidence       TEXT,            -- model's quote, unverified
     created_at     TEXT NOT NULL,
+    refusal_category TEXT,          -- API stop_details.category when position = refused
     PRIMARY KEY (testimony_id, text_sha256, model, prompt_version)
 );
 CREATE INDEX IF NOT EXISTS ix_llm_positions_text ON llm_positions(text_sha256);
@@ -118,6 +119,14 @@ class Store:
         self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns that CREATE TABLE IF NOT EXISTS can't add to an existing DB."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(llm_positions)")}
+        if "refusal_category" not in cols:
+            self.conn.execute("ALTER TABLE llm_positions ADD COLUMN refusal_category TEXT")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -202,12 +211,18 @@ class Store:
         prompt_version: str,
         position: str,
         evidence: str | None,
+        refusal_category: str | None = None,
     ) -> None:
         """Cache one answer for every ``(testimony_id, text_sha256, ...)`` that shares it."""
         now = _now()
         self.conn.executemany(
-            "INSERT OR REPLACE INTO llm_positions VALUES (?,?,?,?,?,?,?)",
-            [(tid, sha, model, prompt_version, position, evidence, now) for tid, sha in rows],
+            """INSERT OR REPLACE INTO llm_positions (testimony_id, text_sha256, model,
+                 prompt_version, position, evidence, created_at, refusal_category)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [
+                (tid, sha, model, prompt_version, position, evidence, now, refusal_category)
+                for tid, sha in rows
+            ],
         )
         self.conn.commit()
 
