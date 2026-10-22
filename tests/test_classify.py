@@ -1,6 +1,12 @@
 import pytest
 
-from maine_testimony.classify import Category, classify, match_town
+from maine_testimony.classify import (
+    Category,
+    classify,
+    maine_places,
+    match_town,
+    village_towns,
+)
 
 C = Category
 
@@ -28,6 +34,16 @@ C = Category
         ("North Hanson", C.TOWN, "North Anson"),  # typo after a directional
         ("Springvale", C.TOWN, "Springvale"),  # 2000-census CDP (village of Sanford)
         ("Mt Vernon", C.TOWN, "Mount Vernon"),
+        # villages inside a larger town: hand-kept list, and "<town> Center/Village/..."
+        ("Port Clyde", C.TOWN, "St. George"),
+        ("Cundy's Harbor", C.TOWN, "Harpswell"),
+        ("Cundys Harbor, ME", C.TOWN, "Harpswell"),
+        ("Peaks Island", C.TOWN, "Portland"),
+        ("Hollis Center", C.TOWN, "Hollis"),  # not the org keyword "center"
+        ("China Village", C.TOWN, "China"),
+        ("Belgrade Lakes", C.TOWN, "Belgrade"),
+        ("Cumberland Foreside", C.TOWN, "Cumberland"),
+        ("Sebago Lake", C.ORGANIZATION, None),  # a village of Standish, not of Sebago
         # institutions
         ("Maine State Legislature", C.LEGISLATOR, None),
         ("Rep. Jane Doe", C.LEGISLATOR, None),
@@ -62,7 +78,36 @@ C = Category
             C.GOVERNMENT,
             None,
         ),
+        # state boards and commissions, special-purpose districts, "Dept." abbreviations
+        ("Maine Arts Commission", C.GOVERNMENT, None),
+        ("Criminal Law Adivsory Commission", C.GOVERNMENT, None),
+        ("Wild Blueberry Commission of Maine", C.GOVERNMENT, None),
+        ("Hallowell Conservation Commission", C.GOVERNMENT, None),
+        ("Board of Licensure in Medicine", C.GOVERNMENT, None),
+        ("State Board of Education", C.GOVERNMENT, None),
+        ("Oakfield Board of Selectmen", C.GOVERNMENT, None),
+        ("MainePERS", C.GOVERNMENT, None),
+        ("Maine Public Employees Retirement System", C.GOVERNMENT, None),
+        ("Portland Water District", C.GOVERNMENT, None),
+        ("Limestone Water and Sewer District", C.GOVERNMENT, None),
+        ("Greater Augusta Utility District", C.GOVERNMENT, None),
+        ("Prosecutorial District 3", C.GOVERNMENT, None),
+        ("Cumberland County District Attorney's Office", C.GOVERNMENT, None),
+        ("Dept. Inland Fisheries and Wildlife", C.GOVERNMENT, None),
+        ("Auburn Police Dept.", C.GOVERNMENT, None),
+        ("Biddeford School Deptartment", C.GOVERNMENT, None),
         ("Maine Municipal Association", C.ORGANIZATION, None),  # nonprofit, not a town
+        ("Maine Prosecutors Association", C.ORGANIZATION, None),
+        ("Maine Water Utility Association", C.ORGANIZATION, None),
+        ("Greater Portland Council of Governments", C.ORGANIZATION, None),
+        # regional planning commissions are councils of governments too
+        ("Southern Maine Planning and Development Commission", C.ORGANIZATION, None),
+        ("Lincoln County Regional Planning Commission", C.ORGANIZATION, None),
+        ("Uniform Law Commission", C.ORGANIZATION, None),  # national nonprofit
+        ("Healthy Acadia Board of Directors", C.ORGANIZATION, None),
+        ("American Board of Pediatric Dentistry", C.ORGANIZATION, None),
+        ("Maine Public", C.ORGANIZATION, None),  # public broadcaster, a nonprofit
+        ("Maine Center for Economic Policy", C.ORGANIZATION, None),
         # associations of governments / schools are organizations
         ("Maine County Commissioners Association", C.ORGANIZATION, None),
         ("ME Assoc. of Conservation Districts", C.ORGANIZATION, None),
@@ -107,6 +152,7 @@ def test_every_result_names_its_rule():
 def test_fuzzy_does_not_grab_short_or_multiword_values():
     assert match_town("Wayn") is None  # too short to fuzz (Wayne)
     assert match_town("Maine Audubon") is None
+    assert match_town("Highland Mills") is None  # Highland is a plantation, not a town
 
 
 def test_new_rules_are_named():
@@ -114,3 +160,17 @@ def test_new_rules_are_named():
     assert classify("Bath and Phippsburg, Maine").rule == "town_multi"
     assert classify("Cony Middle and High School").rule == "public_school"
     assert classify("Portland Public Schools").rule == "town_schools"
+    assert classify("Port Clyde").rule == "town_village"
+    assert classify("Hollis Center").rule == "town_village_suffix"
+    assert classify("Maine Arts Commission").rule == "gov_commission"
+    assert classify("Board of Licensure in Medicine").rule == "gov_board"
+    assert classify("Portland Water District").rule == "gov_district"
+    assert classify("Dept. Inland Fisheries and Wildlife").rule == "gov_dept_abbrev"
+    assert classify("MainePERS").rule == "government_pattern"
+
+
+def test_village_towns_reference_points_at_known_places():
+    places = maine_places()
+    for village, town in village_towns().items():
+        assert village not in places, village  # already a Census place: list is redundant
+        assert town in places, town
