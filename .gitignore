@@ -19,3 +19,9 @@ data/public/*
 
 # Personal progress notes (local only)
 PROGRESS.md
+
+# macOS Finder metadata
+.DS_Store
+
+# Claude Code worktrees (local checkouts of other branches)
+.claude/worktrees/
