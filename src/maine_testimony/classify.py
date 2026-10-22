@@ -82,9 +82,44 @@ _GOVERNMENT = re.compile(
     r"\b(regional school unit|school administrative district|school union)\s*(no\.?|#)?\s*\d+|"
     r"\b(community college|university of maine) system\b|"
     r"\bswcd\b|\bsoil (and|&) water conservation district\b|"
-    r"^(dhhs|dacf|dep|mdot|doe|difw|dmr|dafs|dps|doc|decd|dol|puc|fame|maine ?cdc|maine ?dot)$",
+    r"\bmaine ?pers\b|\bpublic employees'? retirement system\b|"
+    r"^(dhhs|dacf|dep|mdot|doe|difw|dmr|dafs|dps|doc|decd|dol|puc|fame|maine ?cdc|maine ?dot|"
+    r"me ?pers)$",
     re.I,
 )
+# Narrower government families, each with its own rule name so they can be audited
+# apart. All are skipped for associations, like _GOVERNMENT.
+# "Criminal Law Advisory Commission", "Maine Arts Commission", "Hallowell Conservation
+# Commission": almost every "commission" is a public body, except the ones below.
+_GOV_COMMISSION = re.compile(r"\bcommission\b", re.I)
+# Regional planning / development commissions are councils of governments, like
+# "Greater Portland Council of Governments" (an organization); plus national nonprofits.
+_NOT_GOV_COMMISSION = re.compile(
+    r"\b(regional|county) planning\b|\bdevelopment commission\b|"
+    r"\b(uniform laws?|national) commission\b",
+    re.I,
+)
+# Licensing and state boards lead with "Board of"; a "Board of Directors" is anyone's.
+_GOV_BOARD = re.compile(
+    r"^(the )?(maine )?(state )?board of (?!(directors|trustees|governors|advisors|visitors)\b)|"
+    r"\bboard of (select\w*|(public )?education)\b|\bselect ?board\b",
+    re.I,
+)
+# Quasi-municipal special-purpose districts, and the prosecutors' districts.
+_GOV_DISTRICT = re.compile(
+    r"\b(water|sewer|sewerage|sanitary|utility|utilities|power|transit|watershed|ems|fire) "
+    r"district\b|\bprosecutorial district\b|\bdistrict attorney'?s?\b",
+    re.I,
+)
+# "Dept. Inland Fisheries and Wildlife", "Auburn Police Dept." (no "of" needed, unlike
+# the "department of" patterns above), incl. the "Deptartment" typo.
+_GOV_DEPT = re.compile(r"\bdept(artment)?\b", re.I)
+_GOV_RULES = [
+    ("gov_commission", _GOV_COMMISSION, _NOT_GOV_COMMISSION),
+    ("gov_board", _GOV_BOARD, None),
+    ("gov_district", _GOV_DISTRICT, None),
+    ("gov_dept_abbrev", _GOV_DEPT, None),
+]
 # An association of governments is an organization: "Maine County Commissioners
 # Association", "Maine School Board's Association" (cf. Maine Municipal Association).
 _ASSOCIATION = re.compile(r"\b(associat\w*|assn|assoc)\b", re.I)
@@ -127,6 +162,11 @@ _CAMEL = re.compile(  # MaineHealth, FocusMaine, MEDCo
 _TOWNSHIP = re.compile(r"^(.+?)\s+(twp\.?|township|plt\.?|plantation)$", re.I)
 _ME_SUFFIX = re.compile(r"[,\s]+(me|maine)\.?(\s+\d{5}(-\d{4})?)?$", re.I)
 _DIRECTIONAL = re.compile(r"^(north|south|east|west|n\.?|s\.?|e\.?|w\.?)\s+(.+)$", re.I)
+# Village named for its town: "Hollis Center", "China Village", "Belgrade Lakes".
+# Not "lake" ("Sebago Lake" is in Standish) or "island" (Mount Desert Island spans towns).
+_VILLAGE_SUFFIX = re.compile(
+    r"^(.+?)\s+(center|village|mills|corners?|foreside|junction|jct|lakes|point|beach)$", re.I
+)
 
 _US_STATES = (
     "alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|"
@@ -167,6 +207,15 @@ def maine_places() -> dict[str, Place]:
     return {place_key(r["name"]): Place(r["name"], r["kind"], r["geoid"]) for r in rows}
 
 
+@lru_cache(maxsize=1)
+def village_towns() -> dict[str, str]:
+    """place_key(village) -> place_key(parent town), from the hand-kept CSV of villages
+    the Census does not list ("Port Clyde" -> St. George)."""
+    path = resources.files("maine_testimony") / "data" / "village_towns.csv"
+    with path.open() as f:
+        return {place_key(r["village"]): place_key(r["town"]) for r in csv.DictReader(f)}
+
+
 def match_town(value: str) -> tuple[Place, str] | None:
     """Return ``(place, rule)`` if the value is a Maine municipality or village."""
     places = maine_places()
@@ -175,9 +224,15 @@ def match_town(value: str) -> tuple[Place, str] | None:
         return None
     if s in places:
         return places[s], "town_exact"
+    if s in village_towns():
+        return places[village_towns()[s]], "town_village"  # "Port Clyde" -> St. George
     m = _DIRECTIONAL.match(s)
     if m and m.group(2) in places:
         return places[m.group(2)], "town_directional"  # e.g. "West Baldwin" -> Baldwin
+    v = _VILLAGE_SUFFIX.match(s)
+    # Towns and cities only: "Highland Mills" is not in Highland plantation.
+    if v and v.group(1) in places and places[v.group(1)].kind in {"town", "city"}:
+        return places[v.group(1)], "town_village_suffix"  # "Hollis Center" -> Hollis
     if m and len(s) >= 8:
         # Typo after a directional ("North Hanson" -> North Anson): fuzz only against
         # places that start with the same directional word.
@@ -250,8 +305,12 @@ def _classify_one(raw: str) -> Classification:
         return Classification(Category.NONE, "blank_or_placeholder")
     if _LEGISLATOR.search(raw):
         return Classification(Category.LEGISLATOR, "legislator_pattern")
-    if _GOVERNMENT.search(raw) and not _ASSOCIATION.search(raw):
-        return Classification(Category.GOVERNMENT, "government_pattern")
+    if not _ASSOCIATION.search(raw):
+        if _GOVERNMENT.search(raw):
+            return Classification(Category.GOVERNMENT, "government_pattern")
+        for rule, pattern, exclude in _GOV_RULES:
+            if pattern.search(raw) and not (exclude and exclude.search(raw)):
+                return Classification(Category.GOVERNMENT, rule)
     if _PUBLIC_SCHOOL.search(raw) and not _NOT_PUBLIC_SCHOOL.search(raw):
         return Classification(Category.GOVERNMENT, "public_school")
     if (m := _TOWN_SCHOOLS.match(raw)) and match_town(m.group(1)):
