@@ -13,9 +13,10 @@ project turns it into a structured dataset that can answer:
 - **Form-letter campaigns.** How much "public" testimony is copy-pasted templates?
 - **Where civic participation comes from**, town by town.
 
-> **Status:** pipeline complete and tested; full historical crawl in progress. Numbers
-> below come from a sample of 104 hearings across all 17 committees of the 132nd
-> Legislature (6,264 submissions, 250 PDFs; Agriculture is over-represented).
+> **Status:** pipeline complete and tested; full historical crawl in progress. Category
+> shares below cover everything crawled so far: 181,131 submissions from 4,083 hearings
+> in the 126th–132nd Legislatures (October 2026). Figures marked "sample" come from an
+> earlier 104-hearing sample of the 132nd.
 
 ## How the source works
 
@@ -79,15 +80,15 @@ the refreshed public files.
 The `organization` field is sorted into categories with ordered, auditable rules. Every
 row records which rule fired.
 
-| Category | Meaning | Example values | Sample share |
+| Category | Meaning | Example values | Share |
 |---|---|---|---|
-| `town` | Individual who gave a Maine municipality | `Portland`, `topsham`, `Bangor, Maine`, `Orringon`→Orrington | 51.8% |
-| `organization` | Nonprofit, trade group, business, union | `Maine Audubon`, `MOFGA`, `MaineHealth` | 33.9% |
-| `government` | State agency, municipality, county, school unit | `Department of Marine Resources`, `Town of Sanford` | 7.1% |
-| `legislator` | Member of the Legislature | `Maine State Legislature` | 5.3% |
-| `none` | Blank or placeholder | `N/A`, `test`, the person's own name | 0.8% |
-| `place_other` | Individual from out of state | `Morgantown, West Virginia` | 0.1% |
-| `unknown` | Needs review | `Waypoint` | 0.9% |
+| `town` | Individual who gave a Maine municipality or a village in one | `Portland`, `topsham`, `Bangor, Maine`, `Orringon`→Orrington | 42.4% |
+| `organization` | Nonprofit, trade group, business, union | `Maine Audubon`, `MOFGA`, `MaineHealth` | 37.3% |
+| `government` | State agency, board or commission, municipality, county, school unit, utility district | `Department of Marine Resources`, `Town of Sanford` | 8.8% |
+| `legislator` | Member of the Legislature | `Maine State Legislature` | 7.7% |
+| `none` | Blank or placeholder | `N/A`, `test`, the person's own name | 2.4% |
+| `place_other` | Individual from out of state | `Morgantown, West Virginia` | 0.3% |
+| `unknown` | Needs review | `Waypoint` | 1.1% |
 
 Town matching uses the Census Gazetteer list of Maine's 430 towns, 23 cities, plantations,
 reservations and CDPs (`scripts/build_reference.py`). It handles `", ME 04xxx"` suffixes,
@@ -112,10 +113,10 @@ LD 550", "Neither For Nor Against"). An ordered regex classifier:
    `regex_sponsor`);
 4. ignores "we support the *intent*" phrasing.
 
-Every label stores its evidence snippet and character offset. In the 250-PDF sample, 80%
-got a label, and a random spot check of 40 labels found all 40 correct. Most of the
-remainder are letters that never state a position outright, such as budget testimony.
-A proper hand-labeled evaluation is on the roadmap.
+Every label stores its evidence snippet and character offset. On a held-out, hand-labeled
+sample of 200 letters, the regexes give a label to 82% and are right 95.1% of the time
+when they do; 33 of the 196 letters that do state a position are left `unknown` (see
+[Measuring accuracy](#measuring-accuracy-evaluatepy)).
 
 `mtestimony positions --llm` (opt-in, needs `ANTHROPIC_API_KEY` and `pip install -e
 ".[llm]"`) sends the documents the regexes leave `unknown` to Claude Haiku: only the
@@ -127,9 +128,9 @@ identical form letters don't cost extra; `--llm-limit N` caps API calls per run.
 rare letters the model's safety filters decline (5 of 6,758 calls on the 132nd) are
 cached as refusals and stay `unknown` (`llm_refused`).
 Exports carry `position_method = llm`, never the document text.
-On the held-out sample of 196 hand-labeled letters (one per form-letter group),
-accuracy went from 75.0% (regex only) to 91.8%, and missed positions from 48 to 12 of
-191; precision when a label is given went from 99.3% to 97.8%.
+On the held-out sample of 200 letters, accuracy goes from 79.5% (regex only) to 91.5%
+and missed positions from 33 to 7 of 196, while precision when a label is given barely
+moves (95.1% → 94.7%).
 
 ### Form-letter detection (`form_letters.py`)
 
@@ -148,8 +149,41 @@ mtestimony evaluate data/labels/submitters_todo.csv
 ```
 
 This prints per-class precision and recall and the most common confusions, using the
-*current* rules, so rule changes can be checked against the same labels. *(Results go here
-once the labeled sample is done.)*
+*current* rules, so rule changes can be checked against the same labels.
+`label-sample --kind positions` does the same for positions (one document per form-letter
+group). `--exclude FILE` keeps earlier label files out of a new sample.
+
+**Results (October 2026).** Both samples were drawn after rule tuning was finished and
+share no rows with the label sets used for tuning. The submitter sample covers the
+126th–132nd Legislatures. The positions sample is from the 132nd only, since that is the
+only session whose PDFs have been downloaded so far.
+
+Submitters, n = 300: **95.3% accuracy**.
+
+| Category | Precision | Recall | n |
+|---|---|---|---|
+| `town` | 1.00 | 0.97 | 132 |
+| `organization` | 0.90 | 0.98 | 102 |
+| `government` | 1.00 | 0.79 | 28 |
+| `legislator` | 1.00 | 1.00 | 24 |
+| `none` | 1.00 | 0.86 | 14 |
+
+Most errors land in `organization`. Six state and local bodies have names the
+government patterns miss (`Maine Arts Commission`, `Board of Licensure in Medicine`,
+`MainePERS`, `Portland Water District`, `Prosecutorial District 3`, `Dept. Inland
+Fisheries and Wildlife`). Four villages inside a larger town (such as `Port Clyde` and
+`Cundy's Harbor`) aren't in the Census town list. So `government` is undercounted by about
+a fifth, and `organization` is slightly inflated.
+
+Positions, n = 200 (196 letters that state a position, 4 that don't):
+
+| | Accuracy | Precision when labeled | Positioned letters missed |
+|---|---|---|---|
+| Regex only | 79.5% | 95.1% | 33 / 196 |
+| Regex + `--llm` | **91.5%** | 94.7% | 7 / 196 |
+
+The regexes rarely mistake one side for the other: most of their errors are letters left
+`unknown`, which is the gap the LLM fallback closes.
 
 ## The dataset (`data/public/`)
 
@@ -196,7 +230,7 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
 ## Roadmap
 
 - [ ] Full historical crawl (126th–133rd)
-- [ ] Hand-label 300 submitters and 200 documents; publish accuracy
+- [x] Hand-label 300 submitters and 200 documents; publish accuracy
 - [x] LLM fallback for `unknown` positions, validated against the hand labels
 - [ ] Join bill outcomes (passed, died, vetoed). Status pages are disallowed by
       robots.txt, so this needs another source.

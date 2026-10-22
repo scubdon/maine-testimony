@@ -169,20 +169,36 @@ by its `doc_url` column and re-runs the regexes on the stored text (needs `--db`
 With `--exclude`, a labeled document's whole form-letter group is skipped too.
 
 Round 3 (drawn 2026-10-17, excludes every earlier file, zero overlap) is the first
-publishable held-out set: `submitters_round3_todo.csv` (seed 31, n=300) and
-`positions_round3_todo.csv` (seed 47, n=200). Don't tune rules or the prompt on it.
+publishable held-out set: `submitters_round3_todo.csv` (seed 31, n=300, 126th-132nd) and
+`positions_round3_todo.csv` (seed 47, n=200, 132nd only). Labeled and scored 2026-10-22;
+results are in README "Measuring accuracy". It is now SPENT for tuning, like rounds 1-2:
+any rule or prompt change scored against it is no longer a held-out number, so a fix
+needs a round 4 (`--exclude` all four earlier files) to report.
+
+Labeling conventions settled in round 3: villages inside a town (Cundy's Harbor, Port
+Clyde) are `town`; anything named "association" is `organization` even if its members are
+officials (Maine Prosecutors Association), and so is a council of governments; Maine
+Public and MECEP are `organization`.
 
 ## Known gaps / next steps
 
-- Hand-label the round-3 files (above), then `evaluate` them (positions with and without
-  `--llm`) and report real precision/recall.
-- LLM fallback for `unknown` positions: one held-out check on `positions_round1_todo.csv`
-  (n=196, 2026-10-16): accuracy 75.0% -> 91.8%, precision when committed 99.3% -> 97.8%,
-  positioned letters missed 48/191 -> 12/191. The LLM's own commitments were 35/38 correct.
-  These labels are now spent for prompt work: any prompt change needs a fresh labeled sample.
+- Held-out accuracy (round 3, 2026-10-22). Submitters 95.3% (n=300); `government` recall
+  0.79 is the weak class. Positions (n=200): regex 79.5%, precision when committed 95.1%,
+  missed 33/196; with `--llm` 91.5%, 94.7%, missed 7/196. Round 1 gave regex precision
+  99.3%, so tuning on it inflated that by ~4 points.
+- Round-3 gaps (government bodies falling to `organization`; villages missing from the
+  Census list) were fixed 2026-10-22 with rules `gov_commission`, `gov_board`,
+  `gov_district`, `gov_dept_abbrev`, `town_village` (`data/village_towns.csv`) and
+  `town_village_suffix`. The gain is UNMEASURED until a round-4 sample is labeled.
+  Known misfires: "Maine Commission to End Domestic Violence" (a nonprofit) and
+  "Maine Medical Center Dept of Family Medicine" come out `government`.
+- LLM fallback, earlier check on `positions_round1_todo.csv` (n=196, 2026-10-16): 75.0% ->
+  91.8%; the LLM's own commitments were 35/38 correct. Round 3 confirmed the gain. Both
+  label sets are spent for prompt work.
 - Scanned PDFs (~1%) have no text layer; no OCR.
 - Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,
   hence `--orgs-only` and the per-run `--limit` in `.github/workflows/scrape.yml`.
 
-Last sample (132nd, 104 hearings, 6,264 records): town 52%, organization 34%,
-government 7%, legislator 5%, unknown <1%. Positions on 250 PDFs: 80% labeled.
+Full DB (126th-132nd, 4,083 hearings, 181,131 records, classified 2026-10-22): town 42.4%,
+organization 37.3%, government 8.8%, legislator 7.7%, none 2.4%, unknown 1.1%,
+place_other 0.3%.
