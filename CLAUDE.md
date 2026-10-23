@@ -19,7 +19,7 @@ mtestimony crawl -s 132 --per-committee 2
 mtestimony classify
 mtestimony fetch-docs --orgs-only --limit 100
 mtestimony fetch-docs --bill 132:SP0262          # or: -s 132 --min-submissions 300
-mtestimony fetch-docs --retry-errors --limit 100 # also refetch failed downloads/parses
+mtestimony fetch-docs --retry-errors            # only refetch failed downloads/parses
 mtestimony ocr --limit 50          # scans already in the DB (needs the [ocr] extra + tesseract)
 mtestimony export-scans            # -> data/scans/<id>.pdf for FineReader etc.
 mtestimony import-ocr DIR --source finereader
@@ -136,8 +136,8 @@ Base `https://legislature.maine.gov/bills/`:
   `--no-ocr` skips). Pipeline functions take the OCR callable as an argument; tests pass
   fakes and only `test_ocr_pdf_reads_a_real_scan` runs the real tool (skipped if absent).
 - PDFs aren't stored, so `ocr` and `export-scans` re-download through `TestimonyClient`.
-- `fetch-docs --retry-errors` also refetches rows whose `error` is `download: ...`,
-  `parse: ...` or `not_pdf` (`db.RETRYABLE_ERROR_SQL`), and only when `text` and
+- `fetch-docs --retry-errors` refetches ONLY failed rows (no new documents): `error` is
+  `download: ...`, `parse: ...` or `not_pdf` (`db.RETRYABLE_ERROR_SQL`), and `text` and
   `text_source` are NULL, so scans and OCR'd/imported text are never refetched or
   overwritten. `client.document()` is not disk-cached, so a retry really re-downloads.
 

@@ -128,11 +128,15 @@ async def test_retry_errors_queue(mock_api, client, store):
     store.save_document(1, text="Testimony in support of LD 101.")
     store.save_document(2, text="I oppose LD 101.", text_source="finereader")
     store.save_document(3, text="I oppose LD 101.", error="parse: odd", text_source="ocrmypdf")
-    assert sorted(queue(retry_errors=True)) == [4, 5, 6]
+    # Only failed rows, not unfetched ones (4, 5, 6 have no row): a retry run stays small.
+    assert queue(retry_errors=True) == []
+    assert sorted(queue()) == [4, 5, 6]
     # Filters still apply to retried rows.
     store.save_document(4, error="download: 503")
+    store.save_document(5, error="parse: Stream has ended unexpectedly")
+    assert sorted(queue(retry_errors=True)) == [4, 5]
     assert queue(retry_errors=True, bills=[(132, "SP0202")]) == [5]
-    assert queue(retry_errors=True, limit=1, bills=[(132, "HP0101")]) == [4]
+    assert queue(retry_errors=True, bills=[(132, "HP0101")]) == [4]
 
 
 async def test_fetch_documents_retries_failed_rows_only(mock_api, client, store):

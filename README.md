@@ -59,7 +59,7 @@ mtestimony export                           # -> data/public/
 ```
 
 `fetch-docs` records a failed download or unreadable PDF in the database instead of
-stopping. `mtestimony fetch-docs --retry-errors` tries those again alongside new documents
+stopping. `mtestimony fetch-docs --retry-errors` tries only those again
 (scans and documents that already have text, including OCR, are left alone).
 
 The crawler is **incremental and resumable**. A hearing fetched more than 30 days after it

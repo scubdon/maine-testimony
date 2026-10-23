@@ -99,6 +99,7 @@ def test_fetch_docs_retry_errors(tmp_path, mock_api):
 
     r = CliRunner().invoke(app, [*args, "--retry-errors"])
     assert r.exit_code == 0, r.output
+    # 5 came back not_pdf in the first run, so it is a failed row now too.
     assert sorted(c.request.url.params["id"] for c in docs.calls[1:]) == ["1", "2", "5"]
     store = Store(db)
     errors = dict(store.conn.execute("SELECT testimony_id, error FROM documents"))

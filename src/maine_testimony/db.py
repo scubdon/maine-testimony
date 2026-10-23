@@ -289,9 +289,10 @@ class Store:
     ) -> list[int]:
         """IDs still missing a document, newest first (or random).
 
-        ``retry_errors`` also queues documents whose download or parse failed (see
-        ``RETRYABLE_ERROR_SQL``). Scans and anything with text are never queued, so OCR
-        text (ocrmypdf or an ``import-ocr`` tool) can't be overwritten by a refetch.
+        ``retry_errors`` queues documents whose download or parse failed instead (see
+        ``RETRYABLE_ERROR_SQL``), not unfetched ones. Scans and anything with text are
+        never queued, so OCR text (ocrmypdf or an ``import-ocr`` tool) can't be overwritten
+        by a refetch.
 
         ``categories`` restricts to submitter categories (requires ``classify`` first).
         ``bills`` restricts to ``(session_number, paper_number)`` pairs, ``sessions`` to
@@ -299,9 +300,8 @@ class Store:
         records (fetched or not). Filters combine with AND.
         """
         order = "RANDOM()" if random else "t.hearing_date DESC, t.id"
-        where, params = "d.testimony_id IS NULL", []
-        if retry_errors:
-            where = f"({where} OR {RETRYABLE_ERROR_SQL})"
+        where = RETRYABLE_ERROR_SQL if retry_errors else "d.testimony_id IS NULL"
+        params: list = []
         join = ""
         if categories:
             join = "JOIN submitters s ON s.testimony_id = t.id"

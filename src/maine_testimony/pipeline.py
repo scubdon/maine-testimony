@@ -80,7 +80,8 @@ async def fetch_documents(
 ) -> Counter:
     """Download and parse new PDFs; with ``ocr``, scans without a text layer get OCR'd.
 
-    ``retry_errors`` also refetches documents whose earlier download or parse failed.
+    ``retry_errors`` refetches documents whose earlier download or parse failed instead
+    of new ones.
     """
     ids = store.testimony_without_documents(
         limit,

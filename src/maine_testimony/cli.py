@@ -145,8 +145,8 @@ def fetch_docs(
     retry_errors: Annotated[
         bool,
         typer.Option(
-            help="Also refetch documents whose download or parse failed (never scans or "
-            "documents that have text)."
+            help="Refetch documents whose download or parse failed instead of new ones "
+            "(never scans or documents that have text)."
         ),
     ] = False,
 ) -> None:
