@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +15,7 @@ from .classify import ORG_LIKE, Category, classify
 from .client import DOC_URL, TestimonyClient, gather_limited
 from .db import Store
 from .llm_positions import LLMFallback
+from .ocr import OCR_SOURCE, ocr_file_id, read_ocr_file
 from .orgs import cluster_orgs
 from .positions import Position, classify_position, pdf_text
 
@@ -43,6 +46,25 @@ def run_classify(store: Store) -> Counter:
 
 
 # --------------------------------------------------------------- documents
+OCRFn = Callable[[bytes], str]  # PDF bytes -> text; ``ocr.ocr_pdf`` in production
+
+
+async def _ocr_one(store: Store, tid: int, data: bytes, ocr: OCRFn, stats: Counter) -> None:
+    """OCR one scan (in a thread: it's CPU-bound) and store the outcome on its row."""
+    try:
+        text = await asyncio.to_thread(ocr, data)
+    except Exception as e:
+        store.set_document_text(tid, None, source=None, error=f"ocr: {e}")
+        stats["ocr_error"] += 1
+        return
+    if text.strip():
+        store.set_document_text(tid, text, source=OCR_SOURCE)
+        stats["ocr_ok"] += 1
+    else:
+        store.set_document_text(tid, None, source=None, error="ocr_no_text")
+        stats["ocr_no_text"] += 1
+
+
 async def fetch_documents(
     client: TestimonyClient,
     store: Store,
@@ -53,7 +75,9 @@ async def fetch_documents(
     bills: list[tuple[int, str]] | None = None,
     sessions: list[int] | None = None,
     min_submissions: int | None = None,
+    ocr: OCRFn | None = None,
 ) -> Counter:
+    """Download and parse new PDFs; with ``ocr``, scans without a text layer get OCR'd."""
     ids = store.testimony_without_documents(
         limit,
         random=random,
@@ -95,8 +119,101 @@ async def fetch_documents(
             error=None if text.strip() else "no_text_layer",
         )
         stats["ok" if text.strip() else "no_text_layer"] += 1
+        if not text.strip() and ocr is not None:
+            await _ocr_one(store, tid, data, ocr, stats)
 
     await gather_limited([one(t) for t in ids])
+    return stats
+
+
+async def ocr_documents(
+    client: TestimonyClient, store: Store, ocr: OCRFn, limit: int | None = None
+) -> Counter:
+    """OCR scans already in the DB that no OCR has been tried on. PDFs aren't kept, so
+    each one is downloaded again."""
+    stats: Counter = Counter()
+
+    async def one(tid: int) -> None:
+        try:
+            data = await client.document(tid)
+        except Exception as e:
+            log.warning("download %s failed: %s", tid, e)
+            stats["download_error"] += 1
+            return
+        await _ocr_one(store, tid, data, ocr, stats)
+
+    await gather_limited([one(t) for t in store.scanned_documents(limit, untried_only=True)])
+    return stats
+
+
+async def export_scans(
+    client: TestimonyClient,
+    store: Store,
+    out_dir: Path,
+    limit: int | None = None,
+    include_ocr: bool = False,
+) -> Counter:
+    """Save scans still lacking text as ``out_dir/<testimony_id>.pdf`` for an external OCR
+    tool. Files already in ``out_dir`` are kept, so an interrupted export resumes."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ids = store.scanned_documents(include_ocr=include_ocr)
+    todo = [t for t in ids if not (out_dir / f"{t}.pdf").exists()]
+    stats: Counter = Counter(already_saved=len(ids) - len(todo))
+    if limit:
+        todo = todo[:limit]
+
+    async def one(tid: int) -> None:
+        try:
+            data = await client.document(tid)
+        except Exception as e:
+            log.warning("download %s failed: %s", tid, e)
+            stats["download_error"] += 1
+            return
+        (out_dir / f"{tid}.pdf").write_bytes(data)
+        stats["saved"] += 1
+
+    await gather_limited([one(t) for t in todo])
+    return stats
+
+
+def import_ocr(store: Store, in_dir: Path, source: str) -> Counter:
+    """Store text from externally OCR'd scans: ``<testimony_id>*.txt`` or searchable
+    ``<testimony_id>*.pdf`` files anywhere under ``in_dir``. Never replaces a document's
+    embedded text layer. A ``.txt`` is tried before a ``.pdf`` of the same id."""
+    if source == "pdf":
+        raise ValueError("'pdf' is reserved for embedded text layers")
+    files: dict[int, list[Path]] = {}
+    stats: Counter = Counter()
+    for path in sorted(in_dir.rglob("*")):
+        if path.suffix.lower() not in (".pdf", ".txt") or path.name.startswith("."):
+            continue
+        tid = ocr_file_id(path)
+        if tid is None:
+            stats["no_id_in_name"] += 1
+            continue
+        files.setdefault(tid, []).append(path)
+
+    for tid, paths in files.items():
+        accepted = store.accepts_ocr(tid)
+        if accepted is None:
+            stats["not_downloaded"] += 1
+            continue
+        if not accepted:
+            stats["has_text_layer"] += 1
+            continue
+        text = ""
+        for path in sorted(paths, key=lambda p: p.suffix.lower() != ".txt"):
+            try:
+                text = read_ocr_file(path)
+            except Exception as e:
+                log.warning("can't read %s: %s", path, e)
+            if text:
+                break
+        if text:
+            store.set_document_text(tid, text, source=source)
+            stats["imported"] += 1
+        else:
+            stats["no_text"] += 1
     return stats
 
 

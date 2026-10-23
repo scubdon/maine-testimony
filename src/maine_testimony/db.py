@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS documents (
     n_pages      INTEGER,
     text         TEXT,
     fetched_at   TEXT NOT NULL,
-    error        TEXT
+    error        TEXT,            -- e.g. no_text_layer (a scan), ocr_no_text, parse: ...
+    text_source  TEXT             -- pdf (embedded layer) | ocrmypdf | an import-ocr --source
 );
 
 -- Derived tables: fully rebuilt by `mtestimony classify` / `positions`.
@@ -126,6 +127,13 @@ class Store:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(llm_positions)")}
         if "refusal_category" not in cols:
             self.conn.execute("ALTER TABLE llm_positions ADD COLUMN refusal_category TEXT")
+            self.conn.commit()
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(documents)")}
+        if "text_source" not in cols:
+            self.conn.execute("ALTER TABLE documents ADD COLUMN text_source TEXT")
+            self.conn.execute(
+                "UPDATE documents SET text_source = 'pdf' WHERE error IS NULL AND text <> ''"
+            )
             self.conn.commit()
 
     def close(self) -> None:
@@ -196,10 +204,24 @@ class Store:
         n_pages: int | None = None,
         text: str | None = None,
         error: str | None = None,
+        text_source: str | None = None,
     ) -> None:
+        if text_source is None and error is None and text and text.strip():
+            text_source = "pdf"
         self.conn.execute(
-            "INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?,?,?)",
-            (testimony_id, sha256, n_bytes, n_pages, text, _now(), error),
+            """INSERT OR REPLACE INTO documents (testimony_id, sha256, n_bytes, n_pages, text,
+                 fetched_at, error, text_source) VALUES (?,?,?,?,?,?,?,?)""",
+            (testimony_id, sha256, n_bytes, n_pages, text, _now(), error, text_source),
+        )
+        self.conn.commit()
+
+    def set_document_text(
+        self, testimony_id: int, text: str | None, *, source: str | None, error: str | None = None
+    ) -> None:
+        """Replace a scanned document's text (OCR), keeping the upstream file's metadata."""
+        self.conn.execute(
+            "UPDATE documents SET text = ?, text_source = ?, error = ? WHERE testimony_id = ?",
+            (text, source, error, testimony_id),
         )
         self.conn.commit()
 
@@ -292,6 +314,43 @@ class Store:
         if limit:
             sql += f" LIMIT {int(limit)}"
         return [r[0] for r in self.conn.execute(sql, params)]
+
+    def scanned_documents(
+        self, limit: int | None = None, *, untried_only: bool = False, include_ocr: bool = False
+    ) -> list[int]:
+        """IDs of downloaded PDFs that had no text layer, newest first.
+
+        By default: every scan still without text (never OCR'd, or OCR found nothing or
+        failed). ``untried_only``: only scans no OCR has been attempted on. ``include_ocr``:
+        also scans that ``ocrmypdf`` already read, so a better OCR can replace that text.
+        """
+        where = "d.error = 'no_text_layer'"
+        if not untried_only:
+            where = f"({where} OR d.error = 'ocr_no_text' OR d.error LIKE 'ocr:%')"
+        if include_ocr:
+            where = f"({where} OR d.text_source = 'ocrmypdf')"
+        sql = (
+            "SELECT d.testimony_id FROM documents d JOIN testimony t ON t.id = d.testimony_id "
+            f"WHERE {where} ORDER BY t.hearing_date DESC, t.id"
+        )
+        if limit:
+            sql += f" LIMIT {int(limit)}"
+        return [r[0] for r in self.conn.execute(sql)]
+
+    def accepts_ocr(self, testimony_id: int) -> bool | None:
+        """Whether OCR text may replace this document's text: never over an embedded text
+        layer. ``None`` when the document hasn't been downloaded."""
+        row = self.conn.execute(
+            "SELECT text_source, error FROM documents WHERE testimony_id = ?", (testimony_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        source, error = row
+        if source is not None:
+            return source != "pdf"
+        return error is not None and (
+            error in ("no_text_layer", "ocr_no_text") or error.startswith("ocr:")
+        )
 
     def count(self, table: str) -> int:
         return self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

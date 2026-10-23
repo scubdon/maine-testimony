@@ -32,7 +32,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -e .
+      - name: Install (with OCR for scanned PDFs)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+          pip install -e ".[ocr]"
 
       - name: Restore working database
         uses: actions/cache/restore@v4
@@ -51,7 +54,11 @@ jobs:
       # full corpus (100k+ documents) takes many runs at a polite 1 request/second.
       - name: Download and parse new PDFs
         run: |
-          mtestimony fetch-docs --rate 1.0 --orgs-only --limit ${{ inputs.doc_limit || '3000' }}
+          mtestimony fetch-docs --rate 1.0 --orgs-only --ocr --limit ${{ inputs.doc_limit || '3000' }}
+
+      # fetch-docs OCRs new scans; this works through scans fetched before OCR existed.
+      - name: OCR older scans
+        run: mtestimony ocr --rate 1.0 --limit 300
 
       - name: Derive and export
         run: |

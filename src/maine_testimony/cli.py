@@ -24,13 +24,25 @@ from .evaluate import (
 )
 from .form_letters import run_form_letters
 from .llm_positions import ClaudePositions, LLMFallback
-from .pipeline import export_public, fetch_documents, run_classify, run_positions
+from .ocr import ocr_pdf, ocrmypdf_available
+from .pipeline import (
+    OCRFn,
+    export_public,
+    export_scans,
+    fetch_documents,
+    import_ocr,
+    ocr_documents,
+    run_classify,
+    run_positions,
+)
 
 app = typer.Typer(add_completion=False, help="Maine Legislature testimony dataset pipeline.")
 
 DB = Annotated[Path, typer.Option("--db", help="SQLite database path.")]
 DEFAULT_DB = Path("data/testimony.sqlite")
 DEFAULT_CACHE = Path("data/raw")
+DEFAULT_SCANS = Path("data/scans")
+OCR_LANGUAGE = Annotated[str, typer.Option(help="Tesseract language code(s), e.g. eng+fra.")]
 
 
 @app.callback()
@@ -122,10 +134,19 @@ def fetch_docs(
     min_submissions: Annotated[
         int | None, typer.Option(help="Only bills with at least N testimony records.")
     ] = None,
+    ocr: Annotated[
+        bool | None,
+        typer.Option(
+            "--ocr/--no-ocr",
+            help="OCR scans that have no text layer. Default: on if ocrmypdf is installed.",
+        ),
+    ] = None,
+    ocr_language: OCR_LANGUAGE = "eng",
 ) -> None:
     """Download testimony PDFs and store their extracted text."""
     cats = ["organization", "government", "legislator"] if orgs_only else None
     bills = [_parse_bill(b) for b in bill] if bill else None
+    ocr_fn = _ocr_fn(ocr_language, required=bool(ocr)) if ocr is not False else None
 
     async def go():
         async with TestimonyClient(min_interval=rate) as client:
@@ -139,10 +160,85 @@ def fetch_docs(
                 bills=bills,
                 sessions=session,
                 min_submissions=min_submissions,
+                ocr=ocr_fn,
             )
             typer.echo(dict(stats))
 
     asyncio.run(go())
+
+
+def _ocr_fn(language: str, *, required: bool) -> OCRFn | None:
+    if ocrmypdf_available():
+        return lambda data: ocr_pdf(data, language=language)
+    msg = "OCR needs ocrmypdf and Tesseract: pip install -e '.[ocr]' && brew install tesseract"
+    if required:
+        raise typer.BadParameter(msg)
+    logging.getLogger(__name__).info("%s (scans are left as no_text_layer)", msg)
+    return None
+
+
+@app.command("ocr")
+def ocr_cmd(
+    db: DB = DEFAULT_DB,
+    limit: Annotated[int | None, typer.Option(help="Max documents this run.")] = None,
+    rate: Annotated[float, typer.Option(help="Minimum seconds between requests.")] = 1.0,
+    language: OCR_LANGUAGE = "eng",
+) -> None:
+    """OCR scans already in the DB (re-downloads each PDF; skips ones OCR was tried on)."""
+    ocr_fn = _ocr_fn(language, required=True)
+    assert ocr_fn is not None
+
+    async def go():
+        async with TestimonyClient(min_interval=rate) as client:
+            typer.echo(dict(await ocr_documents(client, Store(db), ocr_fn, limit=limit)))
+
+    asyncio.run(go())
+
+
+@app.command("export-scans")
+def export_scans_cmd(
+    db: DB = DEFAULT_DB,
+    out: Annotated[Path, typer.Option(help="Directory for <testimony_id>.pdf files.")] = (
+        DEFAULT_SCANS
+    ),
+    limit: Annotated[int | None, typer.Option(help="Max PDFs to download this run.")] = None,
+    rate: Annotated[float, typer.Option(help="Minimum seconds between requests.")] = 1.0,
+    include_ocr: Annotated[
+        bool, typer.Option(help="Also scans ocrmypdf already read, to redo them.")
+    ] = False,
+) -> None:
+    """Download scans still lacking text for an external OCR tool (FineReader, DEVONthink).
+
+    The files hold private testimony: keep them under data/ (never committed). Make them
+    searchable (or export .txt) keeping the id in each file name, then run import-ocr.
+    """
+
+    async def go():
+        async with TestimonyClient(min_interval=rate) as client:
+            stats = await export_scans(client, Store(db), out, limit, include_ocr)
+            typer.echo(f"{dict(stats)} -> {out}")
+
+    asyncio.run(go())
+
+
+@app.command("import-ocr")
+def import_ocr_cmd(
+    directory: Annotated[
+        Path, typer.Argument(exists=True, file_okay=False, help="Folder of OCR'd files.")
+    ],
+    db: DB = DEFAULT_DB,
+    source: Annotated[
+        str, typer.Option(help="Tool name stored in documents.text_source.")
+    ] = "finereader",
+) -> None:
+    """Store text from OCR'd scans (<testimony_id>*.pdf searchable PDFs or *.txt exports)."""
+    try:
+        stats = import_ocr(Store(db), directory, source)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+    typer.echo(dict(stats))
+    if stats["imported"]:
+        typer.echo("Rerun `mtestimony positions` and `form-letters` to use the new text.")
 
 
 LLM = Annotated[
@@ -287,6 +383,15 @@ def stats(db: DB = DEFAULT_DB) -> None:
         "form_letters",
     ):
         typer.echo(f"{t:<12}{store.count(t):>9}")
+    scans = len(store.scanned_documents())
+    by_source = store.conn.execute(
+        "SELECT text_source, COUNT(*) FROM documents WHERE text_source IS NOT NULL GROUP BY 1"
+    ).fetchall()
+    typer.echo(
+        "document text: "
+        + ", ".join(f"{src}={n}" for src, n in sorted(by_source, key=lambda r: -r[1]))
+        + f"; scans without text={scans}"
+    )
 
 
 if __name__ == "__main__":

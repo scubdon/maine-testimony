@@ -52,7 +52,7 @@ pip install -e ".[dev]"
 
 mtestimony crawl -s 132 --per-committee 4   # quick sample; omit options for everything
 mtestimony classify
-mtestimony fetch-docs --orgs-only --limit 500
+mtestimony fetch-docs --orgs-only --limit 500   # OCRs new scans if ocrmypdf is installed
 mtestimony positions
 mtestimony form-letters
 mtestimony export                           # -> data/public/
@@ -131,6 +131,27 @@ Exports carry `position_method = llm`, never the document text.
 On the held-out sample of 200 letters, accuracy goes from 79.5% (regex only) to 91.5%
 and missed positions from 33 to 7 of 196, while precision when a label is given barely
 moves (95.1% → 94.7%).
+
+### Scanned PDFs (`ocr.py`)
+
+About 2% of the PDFs are scans with no text layer, and they are not spread evenly:
+closer to 3% of organization and government letters (official letterhead, signed and
+scanned) against under 1% from individuals. Without OCR these have no position, so
+institutional voices would be under-counted. Two routes fill the same text column, and
+`documents.text_source` records which one did (`pdf`, `ocrmypdf`, or the tool you name):
+
+- **Automated.** With `pip install -e ".[ocr]"` and Tesseract (`brew install tesseract`
+  / `apt install tesseract-ocr`), `fetch-docs` OCRs each new scan with
+  [ocrmypdf](https://ocrmypdf.readthedocs.io/). `mtestimony ocr --limit N` does the
+  same for scans already in the database (PDFs aren't stored, so each is downloaded
+  again).
+- **External tool.** `mtestimony export-scans` saves every scan still lacking text to
+  `data/scans/<testimony_id>.pdf`. Run them through ABBYY FineReader, DEVONthink or
+  similar, keeping the id at the start of each file name (searchable PDF or `.txt`), then
+  `mtestimony import-ocr DIR --source finereader`.
+
+OCR text never replaces an embedded text layer. Like all document text, it stays in the
+working database and is never exported. Rerun `positions` and `form-letters` afterwards.
 
 ### Form-letter detection (`form_letters.py`)
 
@@ -220,8 +241,9 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
   testifying personally, or a town while representing a group.
 - The position classifier reads text, not intent, and leaves implicit positions as
   `unknown`. On omnibus bills such as the budget, a position is often about one part
-  ("in opposition to Part UU of LD 210"), not the whole bill. Scanned PDFs without a
-  text layer (about 1%) are skipped.
+  ("in opposition to Part UU of LD 210"), not the whole bill. Scanned PDFs (about 2%)
+  depend on OCR, which can misread faint or handwritten pages; the few that stay
+  unreadable have no position.
 - The Legislature notes the online record "may not represent a complete record of a
   hearing."
 - Budget and unprinted-bill testimony is served by a separate endpoint

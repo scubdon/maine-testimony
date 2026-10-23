@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 152 tests, ~1s, all HTTP + Claude API mocked
+pytest -q                          # 207 tests, ~2s, all HTTP + Claude API + OCR mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -19,6 +19,9 @@ mtestimony crawl -s 132 --per-committee 2
 mtestimony classify
 mtestimony fetch-docs --orgs-only --limit 100
 mtestimony fetch-docs --bill 132:SP0262          # or: -s 132 --min-submissions 300
+mtestimony ocr --limit 50          # scans already in the DB (needs the [ocr] extra + tesseract)
+mtestimony export-scans            # -> data/scans/<id>.pdf for FineReader etc.
+mtestimony import-ocr DIR --source finereader
 mtestimony positions                # --llm: Claude for regex-unknowns (opt-in, cached)
 mtestimony form-letters
 mtestimony export                  # -> data/public/
@@ -45,6 +48,7 @@ SQLite (all) -> pipeline.export_public -> data/public/
 | `classify.py` | free-text `organization` field -> category + the rule that fired |
 | `orgs.py` | org-name normalization (`org_key`) + fuzzy clustering |
 | `positions.py` | PDF text extraction (pypdf) + ordered regex support/oppose/neither |
+| `ocr.py` | scanned PDFs: `ocr_pdf` runs ocrmypdf as a subprocess (sidecar text only); file-name/text helpers for `import-ocr` |
 | `llm_positions.py` | opt-in Claude fallback for regex `unknown`s; `ClaudePositions` is the only API caller; answers cached in `llm_positions` |
 | `form_letters.py` | near-duplicate texts per bill (rapidfuzz `cdist` + union-find) |
 | `pipeline.py` | runs derived steps; `export_public` builds the privacy-safe files |
@@ -85,7 +89,8 @@ Base `https://legislature.maine.gov/bills/`:
   except the allowlisted files in `data/public/` (see `.gitignore`).
 - `export_public` never selects `first_name`, `last_name` or raw `organization`.
   Names are exported only for `legislator`. Individuals = category + matched town.
-- Never redistribute PDF text; export links (`doc_url`) instead.
+- Never redistribute PDF text; export links (`doc_url`) instead. OCR text is the same.
+- `export-scans` writes PDFs to `data/scans/` (gitignored with the rest of `data/`).
 - `test_pipeline.py::test_end_to_end` guards this. Keep it passing; extend it if
   you add export columns.
 - Test fixtures use fictional names only.
@@ -119,6 +124,17 @@ Base `https://legislature.maine.gov/bills/`:
   as `unknown` / `llm_refused`; transient errors are not cached. `Store._migrate` adds
   columns to existing DBs. Tests use fakes; the
   autouse conftest fixture hides API keys. Don't tune the prompt on the held-out labels.
+
+**OCR**
+- `documents.text_source`: `pdf` (embedded layer) | `ocrmypdf` | the `import-ocr --source`
+  name. Scans without text have `error` = `no_text_layer` (never OCR'd), `ocr_no_text`
+  or `ocr: <msg>`; `Store.scanned_documents` / `accepts_ocr` encode this. OCR text must
+  never overwrite a `pdf` text layer. `sha256`/`n_bytes`/`n_pages` keep describing the
+  upstream file. `documents` is raw, so OCR text survives derived reruns.
+- `fetch-docs` OCRs new scans when ocrmypdf + tesseract are found (`--ocr` requires it,
+  `--no-ocr` skips). Pipeline functions take the OCR callable as an argument; tests pass
+  fakes and only `test_ocr_pdf_reads_a_real_scan` runs the real tool (skipped if absent).
+- PDFs aren't stored, so `ocr` and `export-scans` re-download through `TestimonyClient`.
 
 ## Making common changes
 
@@ -195,7 +211,10 @@ Public and MECEP are `organization`.
 - LLM fallback, earlier check on `positions_round1_todo.csv` (n=196, 2026-10-16): 75.0% ->
   91.8%; the LLM's own commitments were 35/38 correct. Round 3 confirmed the gain. Both
   label sets are spent for prompt work.
-- Scanned PDFs (~1%) have no text layer; no OCR.
+- Scanned PDFs: ~2.2% overall (2,712 on 2026-10-22), ~3% of org/government letters.
+  OCR added 2026-10-22 (ocrmypdf + external-tool import); the local backlog is going
+  through FineReader. The Actions DB is separate and drains via `mtestimony ocr --limit 300`
+  per run. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
 - Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,
   hence `--orgs-only` and the per-run `--limit` in `.github/workflows/scrape.yml`.
 
