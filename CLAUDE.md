@@ -220,12 +220,13 @@ Public and MECEP are `organization`.
   OCR added 2026-10-22 (ocrmypdf + external-tool import); the local backlog is going
   through FineReader. The Actions DB is separate and drains via `mtestimony ocr --limit 300`
   per run. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
-- Failed fetches (2026-10-23, local DB, 791 retryable): 587 `parse: Stream has ended
-  unexpectedly` (truncated downloads), 146 `download: [Errno 8]` (a DNS outage), 30
-  `download: 5xx`, 13 AES-encrypted (`cryptography` is now a dependency), 8 `not_pdf`, 7
-  corrupt or over pypdf's decompression limit (likely to fail again).
-  `fetch-docs --retry-errors` refetches them; not yet run on the local DB. Rerun
-  `positions` / `form-letters` afterwards.
+- Failed fetches: `fetch-docs --retry-errors` ran on the local DB 2026-10-23 over 791
+  failed rows (mostly truncated downloads and a DNS outage): 667 now have text, 113 turned
+  out to be scans (`no_text_layer`, waiting for `export-scans` + FineReader), 11 still fail
+  (8 `not_pdf`, 2 `download: 500`, 1 over pypdf's decompression limit). After a rerun,
+  use `positions --llm` (`--llm-limit 0` = cached answers only, no API calls): plain
+  `positions` drops the ~21k cached Claude answers from the table. 172 regex-unknowns
+  from the retry haven't been sent to Claude yet.
 - Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,
   hence `--orgs-only` and the per-run `--limit` in `.github/workflows/scrape.yml`.
 
