@@ -112,6 +112,15 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+# Failed fetches worth trying again (`fetch-docs --retry-errors`): network errors, 5xx,
+# truncated or unreadable files, HTML instead of a PDF. Never a scan (no_text_layer,
+# ocr_*) and never a row with text, whatever its source.
+RETRYABLE_ERROR_SQL = (
+    "(d.text_source IS NULL AND d.text IS NULL"
+    " AND (d.error LIKE 'download:%' OR d.error LIKE 'parse:%' OR d.error = 'not_pdf'))"
+)
+
+
 class Store:
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
@@ -276,8 +285,13 @@ class Store:
         bills: list[tuple[int, str]] | None = None,
         sessions: list[int] | None = None,
         min_submissions: int | None = None,
+        retry_errors: bool = False,
     ) -> list[int]:
         """IDs still missing a document, newest first (or random).
+
+        ``retry_errors`` also queues documents whose download or parse failed (see
+        ``RETRYABLE_ERROR_SQL``). Scans and anything with text are never queued, so OCR
+        text (ocrmypdf or an ``import-ocr`` tool) can't be overwritten by a refetch.
 
         ``categories`` restricts to submitter categories (requires ``classify`` first).
         ``bills`` restricts to ``(session_number, paper_number)`` pairs, ``sessions`` to
@@ -286,6 +300,8 @@ class Store:
         """
         order = "RANDOM()" if random else "t.hearing_date DESC, t.id"
         where, params = "d.testimony_id IS NULL", []
+        if retry_errors:
+            where = f"({where} OR {RETRYABLE_ERROR_SQL})"
         join = ""
         if categories:
             join = "JOIN submitters s ON s.testimony_id = t.id"

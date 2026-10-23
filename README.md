@@ -58,6 +58,10 @@ mtestimony form-letters
 mtestimony export                           # -> data/public/
 ```
 
+`fetch-docs` records a failed download or unreadable PDF in the database instead of
+stopping. `mtestimony fetch-docs --retry-errors` tries those again alongside new documents
+(scans and documents that already have text, including OCR, are left alone).
+
 The crawler is **incremental and resumable**. A hearing fetched more than 30 days after it
 took place is treated as final and skipped on later runs. More recent hearings are
 re-pulled, because written testimony keeps arriving after the hearing. A GitHub Actions

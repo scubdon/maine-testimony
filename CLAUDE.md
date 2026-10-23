@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 207 tests, ~2s, all HTTP + Claude API + OCR mocked
+pytest -q                          # 210 tests, ~2s, all HTTP + Claude API + OCR mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -19,6 +19,7 @@ mtestimony crawl -s 132 --per-committee 2
 mtestimony classify
 mtestimony fetch-docs --orgs-only --limit 100
 mtestimony fetch-docs --bill 132:SP0262          # or: -s 132 --min-submissions 300
+mtestimony fetch-docs --retry-errors --limit 100 # also refetch failed downloads/parses
 mtestimony ocr --limit 50          # scans already in the DB (needs the [ocr] extra + tesseract)
 mtestimony export-scans            # -> data/scans/<id>.pdf for FineReader etc.
 mtestimony import-ocr DIR --source finereader
@@ -135,6 +136,10 @@ Base `https://legislature.maine.gov/bills/`:
   `--no-ocr` skips). Pipeline functions take the OCR callable as an argument; tests pass
   fakes and only `test_ocr_pdf_reads_a_real_scan` runs the real tool (skipped if absent).
 - PDFs aren't stored, so `ocr` and `export-scans` re-download through `TestimonyClient`.
+- `fetch-docs --retry-errors` also refetches rows whose `error` is `download: ...`,
+  `parse: ...` or `not_pdf` (`db.RETRYABLE_ERROR_SQL`), and only when `text` and
+  `text_source` are NULL, so scans and OCR'd/imported text are never refetched or
+  overwritten. `client.document()` is not disk-cached, so a retry really re-downloads.
 
 ## Making common changes
 
@@ -215,6 +220,12 @@ Public and MECEP are `organization`.
   OCR added 2026-10-22 (ocrmypdf + external-tool import); the local backlog is going
   through FineReader. The Actions DB is separate and drains via `mtestimony ocr --limit 300`
   per run. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
+- Failed fetches (2026-10-23, local DB, 791 retryable): 587 `parse: Stream has ended
+  unexpectedly` (truncated downloads), 146 `download: [Errno 8]` (a DNS outage), 30
+  `download: 5xx`, 13 AES-encrypted (`cryptography` is now a dependency), 8 `not_pdf`, 7
+  corrupt or over pypdf's decompression limit (likely to fail again).
+  `fetch-docs --retry-errors` refetches them; not yet run on the local DB. Rerun
+  `positions` / `form-letters` afterwards.
 - Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,
   hence `--orgs-only` and the per-run `--limit` in `.github/workflows/scrape.yml`.
 

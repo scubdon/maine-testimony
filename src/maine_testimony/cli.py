@@ -142,6 +142,13 @@ def fetch_docs(
         ),
     ] = None,
     ocr_language: OCR_LANGUAGE = "eng",
+    retry_errors: Annotated[
+        bool,
+        typer.Option(
+            help="Also refetch documents whose download or parse failed (never scans or "
+            "documents that have text)."
+        ),
+    ] = False,
 ) -> None:
     """Download testimony PDFs and store their extracted text."""
     cats = ["organization", "government", "legislator"] if orgs_only else None
@@ -161,6 +168,7 @@ def fetch_docs(
                 sessions=session,
                 min_submissions=min_submissions,
                 ocr=ocr_fn,
+                retry_errors=retry_errors,
             )
             typer.echo(dict(stats))
 

@@ -76,8 +76,12 @@ async def fetch_documents(
     sessions: list[int] | None = None,
     min_submissions: int | None = None,
     ocr: OCRFn | None = None,
+    retry_errors: bool = False,
 ) -> Counter:
-    """Download and parse new PDFs; with ``ocr``, scans without a text layer get OCR'd."""
+    """Download and parse new PDFs; with ``ocr``, scans without a text layer get OCR'd.
+
+    ``retry_errors`` also refetches documents whose earlier download or parse failed.
+    """
     ids = store.testimony_without_documents(
         limit,
         random=random,
@@ -85,6 +89,7 @@ async def fetch_documents(
         bills=bills,
         sessions=sessions,
         min_submissions=min_submissions,
+        retry_errors=retry_errors,
     )
     stats: Counter = Counter()
     if save_dir:

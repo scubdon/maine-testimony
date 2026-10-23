@@ -885,6 +885,7 @@ name = "maine-testimony"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "httpx" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -915,6 +916,7 @@ ocr = [
 requires-dist = [
     { name = "anthropic", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "anthropic", marker = "extra == 'llm'", specifier = ">=1.0" },
+    { name = "cryptography", specifier = ">=3.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "ocrmypdf", marker = "extra == 'ocr'", specifier = ">=17" },

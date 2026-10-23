@@ -81,6 +81,31 @@ def test_fetch_docs_by_bill(tmp_path, mock_api):
     assert _fetched(db) == [1, 2, 3, 4, 5]
 
 
+def test_fetch_docs_retry_errors(tmp_path, mock_api):
+    db = tmp_path / "t.sqlite"
+    _seed_bills(db)
+    store = Store(db)
+    store.save_document(1, error="download: 503")
+    store.save_document(2, error="parse: Stream has ended unexpectedly")
+    store.save_document(3, error="no_text_layer")
+    store.save_document(4, text="Testimony in support of LD 101", text_source="finereader")
+    store.close()
+    docs = mock_api.get("getTestimonyDoc.asp").mock(return_value=httpx.Response(200, text="x"))
+    args = ["fetch-docs", "--db", str(db), "--rate", "0", "--no-ocr"]
+
+    r = CliRunner().invoke(app, args)  # without the flag only the unfetched 5 is queued
+    assert r.exit_code == 0, r.output
+    assert docs.call_count == 1
+
+    r = CliRunner().invoke(app, [*args, "--retry-errors"])
+    assert r.exit_code == 0, r.output
+    assert sorted(c.request.url.params["id"] for c in docs.calls[1:]) == ["1", "2", "5"]
+    store = Store(db)
+    errors = dict(store.conn.execute("SELECT testimony_id, error FROM documents"))
+    store.close()
+    assert errors == {1: "not_pdf", 2: "not_pdf", 3: "no_text_layer", 4: None, 5: "not_pdf"}
+
+
 def test_fetch_docs_rejects_malformed_bill(tmp_path):
     r = CliRunner().invoke(
         app, ["fetch-docs", "--db", str(tmp_path / "t.sqlite"), "--bill", "SP0262"]
