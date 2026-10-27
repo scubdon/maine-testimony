@@ -64,9 +64,11 @@ stopping. `mtestimony fetch-docs --retry-errors` tries only those again
 
 The crawler is **incremental and resumable**. A hearing fetched more than 30 days after it
 took place is treated as final and skipped on later runs. More recent hearings are
-re-pulled, because written testimony keeps arriving after the hearing. A GitHub Actions
-workflow (`.github/workflows/scrape.yml`) runs the whole pipeline weekly and commits
-the refreshed public files.
+re-pulled, because written testimony keeps arriving after the hearing. The public files
+in `data/public/` are exported from the maintainer's local database and committed by
+hand. A GitHub Actions workflow (`.github/workflows/scrape.yml`) runs the pipeline weekly
+as a health check (is the site's API unchanged, does every step still run) but commits
+nothing.
 
 ### Being a polite scraper
 
@@ -237,7 +239,7 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
 - **PDFs and their text are never redistributed.** Rows link to the original document
   on the Legislature's site.
 - The working database, raw cache, PDFs, and label files are git-ignored. The scheduled
-  workflow keeps the database in the Actions cache and commits only `data/public/`.
+  workflow keeps its own database in the Actions cache and commits nothing.
 
 ## Limitations
 

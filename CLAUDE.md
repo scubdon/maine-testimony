@@ -218,8 +218,12 @@ Public and MECEP are `organization`.
   label sets are spent for prompt work.
 - Scanned PDFs: ~2.2% overall (2,712 on 2026-10-22), ~3% of org/government letters.
   OCR added 2026-10-22 (ocrmypdf + external-tool import); the local backlog is going
-  through FineReader. The Actions DB is separate and drains via `mtestimony ocr --limit 300`
-  per run. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
+  through FineReader. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
+- `data/public/` comes ONLY from the local DB (`mtestimony export`, committed by hand).
+  Since 2026-10-27 the weekly workflow commits nothing (`contents: read`): its Actions-cache
+  DB is a thin orgs-only copy (~9k positioned docs vs ~123k locally, no FineReader text,
+  no `--llm`), and its Oct 26 refresh had overwritten the full export. Don't re-add a
+  commit step. Pull before committing an export.
 - Failed fetches: `fetch-docs --retry-errors` ran on the local DB 2026-10-23 over 791
   failed rows (mostly truncated downloads and a DNS outage): 667 now have text, 113 turned
   out to be scans (`no_text_layer`, waiting for `export-scans` + FineReader), 11 still fail

@@ -1,8 +1,10 @@
 name: Weekly scrape
 
-# Refreshes the public dataset once a week. The working SQLite database holds
-# private individuals' names, so it lives only in the Actions cache; just the
-# privacy-reduced exports in data/public/ are committed.
+# Runs the pipeline once a week as a check that the upstream site and every step still
+# work. It commits NOTHING: data/public/ is exported from the maintainer's local database,
+# which has the full crawl, FineReader OCR and Claude positions this one lacks. The
+# working SQLite database holds private individuals' names, so it lives only in the
+# Actions cache.
 
 on:
   schedule:
@@ -14,7 +16,7 @@ on:
         default: "3000"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: scrape
@@ -73,11 +75,3 @@ jobs:
         with:
           path: data/testimony.sqlite
           key: testimony-db-${{ github.run_id }}
-
-      - name: Commit public dataset
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/public
-          git diff --staged --quiet || git commit -m "data: weekly refresh $(date -u +%F)"
-          git push
