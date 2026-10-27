@@ -220,10 +220,13 @@ Public and MECEP are `organization`.
   OCR added 2026-10-22 (ocrmypdf + external-tool import); the local backlog is going
   through FineReader. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
 - `data/public/` comes ONLY from the local DB (`mtestimony export`, committed by hand).
-  Since 2026-10-27 the weekly workflow commits nothing (`contents: read`): its Actions-cache
-  DB is a thin orgs-only copy (~9k positioned docs vs ~123k locally, no FineReader text,
-  no `--llm`), and its Oct 26 refresh had overwritten the full export. Don't re-add a
-  commit step. Pull before committing an export.
+  Since 2026-10-27 `.github/workflows/scrape.yml` is a light weekly HEALTH CHECK that
+  commits nothing (`contents: read`): incremental crawl (fails on any `errors=` > 0),
+  classify, a random 20-PDF `fetch-docs --no-ocr` sample (fails if none parse; warns if
+  nothing is left to sample), then derived steps and an export to `$RUNNER_TEMP`. Its
+  Actions-cache DB is thin (~9k docs, no OCR, no `--llm`); its Oct 26 refresh had
+  overwritten the full export. Don't re-add a commit step or bulk downloads/OCR there.
+  Pull before committing an export.
 - Failed fetches: `fetch-docs --retry-errors` ran on the local DB 2026-10-23 over 791
   failed rows (mostly truncated downloads and a DNS outage): 667 now have text, 113 turned
   out to be scans (`no_text_layer`, waiting for `export-scans` + FineReader), 11 still fail
@@ -231,8 +234,8 @@ Public and MECEP are `organization`.
   use `positions --llm` (`--llm-limit 0` = cached answers only, no API calls): plain
   `positions` drops the ~21k cached Claude answers from the table. 172 regex-unknowns
   from the retry haven't been sent to Claude yet.
-- Full historical crawl not done; the full PDF corpus is a day-plus at 1 req/sec,
-  hence `--orgs-only` and the per-run `--limit` in `.github/workflows/scrape.yml`.
+- Full PDF corpus not fetched yet (~58k testimony rows have no document); at 1 req/sec
+  it's a day-plus and runs locally with `fetch-docs`, not in CI.
 
 Full DB (126th-132nd, 4,083 hearings, 181,131 records, classified 2026-10-22): town 42.4%,
 organization 37.3%, government 8.8%, legislator 7.7%, none 2.4%, unknown 1.1%,

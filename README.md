@@ -66,9 +66,9 @@ The crawler is **incremental and resumable**. A hearing fetched more than 30 day
 took place is treated as final and skipped on later runs. More recent hearings are
 re-pulled, because written testimony keeps arriving after the hearing. The public files
 in `data/public/` are exported from the maintainer's local database and committed by
-hand. A GitHub Actions workflow (`.github/workflows/scrape.yml`) runs the pipeline weekly
-as a health check (is the site's API unchanged, does every step still run) but commits
-nothing.
+hand. A GitHub Actions workflow (`.github/workflows/scrape.yml`) is a light weekly
+health check: it crawls new listings, downloads a sample of 20 PDFs and runs every later
+step, failing if the site's endpoints stop answering as expected. It commits nothing.
 
 ### Being a polite scraper
 

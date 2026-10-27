@@ -1,19 +1,22 @@
-name: Weekly scrape
+name: Weekly health check
 
-# Runs the pipeline once a week as a check that the upstream site and every step still
-# work. It commits NOTHING: data/public/ is exported from the maintainer's local database,
-# which has the full crawl, FineReader OCR and Claude positions this one lacks. The
-# working SQLite database holds private individuals' names, so it lives only in the
-# Actions cache.
+# A light weekly check that the Legislature's undocumented endpoints still answer the way
+# the pipeline expects, and that every step still runs. It commits NOTHING: data/public/ is
+# exported from the maintainer's local database (full crawl, FineReader OCR, Claude
+# positions) and committed by hand. Bulk PDF downloads and OCR happen locally too.
+#
+# The run fails if the crawl reports any failed hearing, or if none of the sampled PDFs
+# downloads and parses. The working SQLite database holds private individuals' names, so
+# it lives only in the Actions cache (kept so the crawl stays incremental).
 
 on:
   schedule:
     - cron: "17 7 * * 1" # Mondays 07:17 UTC (off the hour, to spread load)
   workflow_dispatch:
     inputs:
-      doc_limit:
-        description: "Max PDFs to download this run"
-        default: "3000"
+      doc_sample:
+        description: "PDFs to download as a sample"
+        default: "20"
 
 permissions:
   contents: read
@@ -23,9 +26,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  scrape:
+  health-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 60
     env:
       MTESTIMONY_CONTACT: https://github.com/${{ github.repository }}
     steps:
@@ -34,10 +37,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install (with OCR for scanned PDFs)
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
-          pip install -e ".[ocr]"
+      - run: pip install -e .
 
       - name: Restore working database
         uses: actions/cache/restore@v4
@@ -46,27 +46,33 @@ jobs:
           key: testimony-db-${{ github.run_id }}
           restore-keys: testimony-db-
 
+      # Listing endpoints: sessions, committees, hearing dates, testimony records.
       - name: Crawl listings (incremental)
-        run: mtestimony -v crawl --rate 1.0 --no-cache
+        run: |
+          out=$(mtestimony -v crawl --rate 1.0 --no-cache)
+          echo "$out"
+          echo "$out" | grep -q "errors=0;" || { echo "::error::crawl reported failed hearings"; exit 1; }
 
       - name: Classify submitters
         run: mtestimony classify
 
-      # Organization/government/legislator PDFs first: they drive the analysis, and the
-      # full corpus (100k+ documents) takes many runs at a polite 1 request/second.
-      - name: Download and parse new PDFs
+      # PDF endpoint + pypdf parsing, on a small random sample. No OCR here.
+      - name: Download a sample of PDFs
         run: |
-          mtestimony fetch-docs --rate 1.0 --orgs-only --ocr --limit ${{ inputs.doc_limit || '3000' }}
+          out=$(mtestimony fetch-docs --rate 1.0 --random --no-ocr --limit ${{ inputs.doc_sample || '20' }})
+          echo "$out"
+          if [ "$out" = "{}" ]; then
+            echo "::warning::every listed PDF is already in the database; nothing to sample"
+          elif ! echo "$out" | grep -q "'ok': [1-9]"; then
+            echo "::error::no sampled PDF downloaded and parsed"; exit 1
+          fi
 
-      # fetch-docs OCRs new scans; this works through scans fetched before OCR existed.
-      - name: OCR older scans
-        run: mtestimony ocr --rate 1.0 --limit 300
-
-      - name: Derive and export
+      # Derived steps and the export, written outside the repo so nothing can be committed.
+      - name: Derive and export (discarded)
         run: |
           mtestimony positions
           mtestimony form-letters
-          mtestimony export
+          mtestimony export --out "$RUNNER_TEMP/public"
           mtestimony stats
 
       - name: Save working database
