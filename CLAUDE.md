@@ -129,7 +129,10 @@ Base `https://legislature.maine.gov/bills/`:
 **OCR**
 - `documents.text_source`: `pdf` (embedded layer) | `ocrmypdf` | the `import-ocr --source`
   name. Scans without text have `error` = `no_text_layer` (never OCR'd), `ocr_no_text`
-  or `ocr: <msg>`; `Store.scanned_documents` / `accepts_ocr` encode this. OCR text must
+  or `ocr: <msg>`; `Store.scanned_documents` / `accepts_ocr` encode this. A PDF with zero
+  pages (upstream's converter, GdPicture, kept nothing) is `empty_pdf`: not a scan, never
+  OCR'd or retried. These queues are allowlists, so a new `error` value is excluded from
+  all of them unless added. `Store._migrate` relabels old zero-page `no_text_layer` rows. OCR text must
   never overwrite a `pdf` text layer. `sha256`/`n_bytes`/`n_pages` keep describing the
   upstream file. `documents` is raw, so OCR text survives derived reruns.
 - `fetch-docs` OCRs new scans when ocrmypdf + tesseract are found (`--ocr` requires it,
@@ -216,12 +219,12 @@ Public and MECEP are `organization`.
 - LLM fallback, earlier check on `positions_round1_todo.csv` (n=196, 2026-10-16): 75.0% ->
   91.8%; the LLM's own commitments were 35/38 correct. Round 3 confirmed the gain. Both
   label sets are spent for prompt work.
-- Scanned PDFs: 4,411 of 181,131 (2.4%; 2.8% of org/government letters). 4,261 have
-  FineReader text (two batches: `data/scans/`, `data/scans-batch2/`). 150 that FineReader
-  skipped in batch 2 still have no text; copies are in `data/scans-batch2-retry/` for
-  another pass, then `import-ocr` + `positions --llm`. FineReader may write `<id>-1.pdf`
-  rather than overwrite; `import-ocr` matches the id prefix, so that is fine. OCR quality
-  is unmeasured: no hand labels yet on OCR'd documents.
+- Scanned PDFs: 4,266 of 181,131 (2.4%). 4,261 have FineReader text (two batches:
+  `data/scans/`, `data/scans-batch2/`); the other 5 are 3 photos and 2 blank pages with
+  nothing to read. 145 more are `empty_pdf` (zero pages, same bytes on every download, so
+  the content isn't on the site; checked by hand 2026-10-29). FineReader may write
+  `<id>-1.pdf` rather than overwrite; `import-ocr` matches the id prefix, so that is fine.
+  OCR quality is unmeasured: no hand labels yet on OCR'd documents.
 - `data/public/` comes ONLY from the local DB (`mtestimony export`, committed by hand).
   Since 2026-10-27 `.github/workflows/scrape.yml` is a light weekly HEALTH CHECK that
   commits nothing (`contents: read`): incremental crawl (fails on any `errors=` > 0),

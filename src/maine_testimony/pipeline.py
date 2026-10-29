@@ -116,16 +116,18 @@ async def fetch_documents(
             store.save_document(tid, sha256=sha, n_bytes=len(data), error=f"parse: {e}")
             stats["parse_error"] += 1
             return
+        # Zero pages: upstream's converter kept nothing, so there is nothing to OCR.
+        status = "ok" if text.strip() else "no_text_layer" if pages else "empty_pdf"
         store.save_document(
             tid,
             sha256=sha,
             n_bytes=len(data),
             n_pages=pages,
             text=text,
-            error=None if text.strip() else "no_text_layer",
+            error=None if status == "ok" else status,
         )
-        stats["ok" if text.strip() else "no_text_layer"] += 1
-        if not text.strip() and ocr is not None:
+        stats[status] += 1
+        if status == "no_text_layer" and ocr is not None:
             await _ocr_one(store, tid, data, ocr, stats)
 
     await gather_limited([one(t) for t in ids])

@@ -249,7 +249,8 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
   `unknown`. On omnibus bills such as the budget, a position is often about one part
   ("in opposition to Part UU of LD 210"), not the whole bill. Scanned PDFs (about 2.4%)
   depend on OCR, which can misread faint or handwritten pages; the few that stay
-  unreadable have no position.
+  unreadable have no position. So do 145 uploads that the site serves as empty PDFs
+  (zero pages), and about 20 that fail to download or aren't PDFs.
 - The Legislature notes the online record "may not represent a complete record of a
   hearing."
 - Budget and unprinted-bill testimony is served by a separate endpoint

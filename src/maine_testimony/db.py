@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS documents (
     n_pages      INTEGER,
     text         TEXT,
     fetched_at   TEXT NOT NULL,
-    error        TEXT,            -- e.g. no_text_layer (a scan), ocr_no_text, parse: ...
+    error        TEXT,            -- e.g. no_text_layer (a scan), empty_pdf (0 pages), parse: ...
     text_source  TEXT             -- pdf (embedded layer) | ocrmypdf | an import-ocr --source
 );
 
@@ -114,7 +114,7 @@ def _now() -> str:
 
 # Failed fetches worth trying again (`fetch-docs --retry-errors`): network errors, 5xx,
 # truncated or unreadable files, HTML instead of a PDF. Never a scan (no_text_layer,
-# ocr_*) and never a row with text, whatever its source.
+# ocr_*), never empty_pdf (upstream serves it that way), and never a row with text.
 RETRYABLE_ERROR_SQL = (
     "(d.text_source IS NULL AND d.text IS NULL"
     " AND (d.error LIKE 'download:%' OR d.error LIKE 'parse:%' OR d.error = 'not_pdf'))"
@@ -132,7 +132,8 @@ class Store:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Add columns that CREATE TABLE IF NOT EXISTS can't add to an existing DB."""
+        """Bring an existing DB up to date: add columns CREATE TABLE IF NOT EXISTS can't
+        add, and relabel rows saved under older rules."""
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(llm_positions)")}
         if "refusal_category" not in cols:
             self.conn.execute("ALTER TABLE llm_positions ADD COLUMN refusal_category TEXT")
@@ -143,6 +144,13 @@ class Store:
             self.conn.execute(
                 "UPDATE documents SET text_source = 'pdf' WHERE error IS NULL AND text <> ''"
             )
+            self.conn.commit()
+        # Zero-page PDFs used to be saved as scans (no_text_layer); they have no pages to OCR.
+        # Check with a read first: an UPDATE, even of 0 rows, opens a write transaction, and
+        # opening an up-to-date DB must not take a write lock.
+        empty = "error = 'no_text_layer' AND n_pages = 0"
+        if self.conn.execute(f"SELECT 1 FROM documents WHERE {empty} LIMIT 1").fetchone():
+            self.conn.execute(f"UPDATE documents SET error = 'empty_pdf' WHERE {empty}")
             self.conn.commit()
 
     def close(self) -> None:

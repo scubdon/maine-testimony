@@ -8,7 +8,7 @@ import subprocess
 
 import httpx
 import pytest
-from pdfs import blank_pdf, text_pdf
+from pdfs import blank_pdf, empty_pdf, text_pdf
 from typer.testing import CliRunner
 
 from maine_testimony import cli, ocr
@@ -119,6 +119,42 @@ async def test_fetch_documents_without_ocr_leaves_scans(mock_api, client, store)
     stats = await fetch_documents(client, store, limit=1)
     assert stats == {"no_text_layer": 1}
     assert [d[1:] for d in _docs(store).values()] == [("no_text_layer", None)]
+
+
+async def test_fetch_documents_marks_zero_page_pdfs_empty(mock_api, client, store):
+    await crawl(client, store, sessions=[132])
+    mock_api.get("getTestimonyDoc.asp").mock(return_value=httpx.Response(200, content=empty_pdf()))
+    calls = []
+    stats = await fetch_documents(client, store, limit=1, ocr=lambda d: calls.append(d) or "")
+    assert stats == {"empty_pdf": 1}
+    assert calls == []  # nothing to OCR: there are no pages
+    [(tid, (text, error, source))] = _docs(store).items()
+    assert (text, error, source) == ("", "empty_pdf", None)
+    # Out of every queue: not a scan, not OCR-able, not retried (upstream serves it so).
+    assert store.scanned_documents() == []
+    assert not store.accepts_ocr(tid)
+    assert store.testimony_without_documents(retry_errors=True) == []
+    run_positions(store)
+    row = store.conn.execute(
+        "SELECT position, method FROM positions WHERE testimony_id = ?", (tid,)
+    ).fetchone()
+    assert tuple(row) == ("unknown", "no_text")
+
+
+async def test_migration_marks_zero_page_scans_empty(mock_api, client, tmp_path):
+    db = tmp_path / "t.sqlite"
+    store = Store(db)
+    await crawl(client, store, sessions=[132])  # scanned_documents joins testimony
+    store.save_document(1, n_pages=0, text="", error="no_text_layer")
+    store.save_document(2, n_pages=1, text="", error="no_text_layer")  # a real scan
+    store.save_document(3, n_pages=0, text="OCR text", text_source="finereader")
+    store.close()
+    for _ in range(2):  # idempotent: runs on every open
+        store = Store(db)
+        rows = store.conn.execute("SELECT testimony_id, error FROM documents ORDER BY 1")
+        assert [tuple(r) for r in rows] == [(1, "empty_pdf"), (2, "no_text_layer"), (3, None)]
+        assert store.scanned_documents() == [2]
+        store.close()
 
 
 async def _seed_scans(mock_api, client, store):

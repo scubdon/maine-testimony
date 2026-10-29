@@ -16,6 +16,13 @@ def blank_pdf() -> bytes:
     return buf.getvalue()
 
 
+def empty_pdf() -> bytes:
+    """A valid PDF with zero pages (``/Kids []``), as upstream serves for some uploads."""
+    buf = io.BytesIO()
+    PdfWriter().write(buf)
+    return buf.getvalue()
+
+
 def text_pdf(text: str) -> bytes:
     """A one-page PDF with an embedded text layer (what a searchable PDF looks like)."""
     stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
