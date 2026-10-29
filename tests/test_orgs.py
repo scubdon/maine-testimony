@@ -16,6 +16,9 @@ def test_aliases():
     assert org_key("MSEA-SEIU Local 1989") == org_key(
         "Maine Service Employees Association, SEIU Local 1989"
     )
+    assert org_key("MACDL") == org_key("Maine Association of Criminal Defense Lawyers")
+    # Renamed in 2019: same organization under both names.
+    assert org_key("Maine Heritage Policy Center") == "maine policy institute"
 
 
 def test_cluster_merges_typos_and_picks_common_spelling():
