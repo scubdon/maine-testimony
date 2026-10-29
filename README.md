@@ -247,7 +247,7 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
   testifying personally, or a town while representing a group.
 - The position classifier reads text, not intent, and leaves implicit positions as
   `unknown`. On omnibus bills such as the budget, a position is often about one part
-  ("in opposition to Part UU of LD 210"), not the whole bill. Scanned PDFs (about 2%)
+  ("in opposition to Part UU of LD 210"), not the whole bill. Scanned PDFs (about 2.4%)
   depend on OCR, which can misread faint or handwritten pages; the few that stay
   unreadable have no position.
 - The Legislature notes the online record "may not represent a complete record of a

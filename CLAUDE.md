@@ -98,8 +98,8 @@ Base `https://legislature.maine.gov/bills/`:
 
 **Politeness**
 - Default `min_interval=1.0` s, concurrency 2. Don't lower these defaults.
-- Keep the identifying User-Agent (`MTESTIMONY_CONTACT` env var;
-  `client.py` still has a `YOUR-USER` placeholder).
+- Keep the identifying User-Agent (`MTESTIMONY_CONTACT` env var; defaults to the
+  project's GitHub URL in `client.py`).
 - All network access goes through `TestimonyClient`. Tests never hit the live
   site: use the `mock_api` fixture (respx) in `tests/conftest.py`.
 
@@ -216,9 +216,12 @@ Public and MECEP are `organization`.
 - LLM fallback, earlier check on `positions_round1_todo.csv` (n=196, 2026-10-16): 75.0% ->
   91.8%; the LLM's own commitments were 35/38 correct. Round 3 confirmed the gain. Both
   label sets are spent for prompt work.
-- Scanned PDFs: ~2.2% overall (2,712 on 2026-10-22), ~3% of org/government letters.
-  OCR added 2026-10-22 (ocrmypdf + external-tool import); the local backlog is going
-  through FineReader. OCR quality is unmeasured: no hand labels yet on OCR'd documents.
+- Scanned PDFs: 4,411 of 181,131 (2.4%; 2.8% of org/government letters). 4,261 have
+  FineReader text (two batches: `data/scans/`, `data/scans-batch2/`). 150 that FineReader
+  skipped in batch 2 still have no text; copies are in `data/scans-batch2-retry/` for
+  another pass, then `import-ocr` + `positions --llm`. FineReader may write `<id>-1.pdf`
+  rather than overwrite; `import-ocr` matches the id prefix, so that is fine. OCR quality
+  is unmeasured: no hand labels yet on OCR'd documents.
 - `data/public/` comes ONLY from the local DB (`mtestimony export`, committed by hand).
   Since 2026-10-27 `.github/workflows/scrape.yml` is a light weekly HEALTH CHECK that
   commits nothing (`contents: read`): incremental crawl (fails on any `errors=` > 0),
@@ -227,16 +230,17 @@ Public and MECEP are `organization`.
   Actions-cache DB is thin (~9k docs, no OCR, no `--llm`); its Oct 26 refresh had
   overwritten the full export. Don't re-add a commit step or bulk downloads/OCR there.
   Pull before committing an export.
-- Failed fetches: `fetch-docs --retry-errors` ran on the local DB 2026-10-23 over 791
-  failed rows (mostly truncated downloads and a DNS outage): 667 now have text, 113 turned
-  out to be scans (`no_text_layer`, waiting for `export-scans` + FineReader), 11 still fail
-  (8 `not_pdf`, 2 `download: 500`, 1 over pypdf's decompression limit). After a rerun,
-  use `positions --llm` (`--llm-limit 0` = cached answers only, no API calls): plain
-  `positions` drops the ~21k cached Claude answers from the table. 172 regex-unknowns
-  from the retry haven't been sent to Claude yet.
-- Full PDF corpus not fetched yet (~58k testimony rows have no document); at 1 req/sec
-  it's a day-plus and runs locally with `fetch-docs`, not in CI.
+- Full PDF corpus fetched 2026-10-27/28 (57.8k documents, ~17 h at 1 req/sec, local
+  `fetch-docs --no-ocr`, not CI): every testimony row now has a `documents` row. 21 fail
+  for good after `--retry-errors` (17 `not_pdf`, 3 `download: 500`, 1 over pypdf's
+  decompression limit).
+- Every regex-unknown has been sent to Claude (2026-10-29; `llm_positions` holds 38,099
+  answers, 120 refused, 118 of them `bio`). After any rerun use `positions --llm`
+  (`--llm-limit 0` = cached answers only, no API calls): plain `positions` drops the
+  cached Claude answers from the table. The API key lives in the user's own terminal,
+  not the agent shell, so new Claude calls are run by the user.
 
 Full DB (126th-132nd, 4,083 hearings, 181,131 records, classified 2026-10-22): town 42.4%,
 organization 37.3%, government 8.8%, legislator 7.7%, none 2.4%, unknown 1.1%,
-place_other 0.3%.
+place_other 0.3%. Positions (2026-10-29): support 56.1%, oppose 30.5%, neither 5.5%,
+unknown 7.9%.
