@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 210 tests, ~2s, all HTTP + Claude API + OCR mocked
+pytest -q                          # 239 tests, ~3s, all HTTP + Claude API + OCR mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -25,6 +25,8 @@ mtestimony export-scans            # -> data/scans/<id>.pdf for FineReader etc.
 mtestimony import-ocr DIR --source finereader
 mtestimony positions                # --llm: Claude for regex-unknowns (opt-in, cached)
 mtestimony form-letters
+mtestimony fetch-status            # bill status pages -> bill_status (--reparse: cache only)
+mtestimony outcomes                # pass rate by share opposed -> data/analysis/
 mtestimony export                  # -> data/public/
 mtestimony stats
 ```
@@ -52,13 +54,15 @@ SQLite (all) -> pipeline.export_public -> data/public/
 | `ocr.py` | scanned PDFs: `ocr_pdf` runs ocrmypdf as a subprocess (sidecar text only); file-name/text helpers for `import-ocr` |
 | `llm_positions.py` | opt-in Claude fallback for regex `unknown`s; `ClaudePositions` is the only API caller; answers cached in `llm_positions` |
 | `form_letters.py` | near-duplicate texts per bill (rapidfuzz `cdist` + union-find) |
+| `bill_status.py` | parses `display_ps.asp` bill pages (regexes; the HTML is malformed) + fetch loop |
+| `outcomes.py` | bill-level join of positions to outcomes; `outcome_of` / `report_of` buckets |
 | `pipeline.py` | runs derived steps; `export_public` builds the privacy-safe files |
 | `evaluate.py` | hand-label sampling + precision/recall scoring |
 | `cli.py` | Typer commands; thin wrappers, logic stays in modules |
 | `data/` | `maine_places.csv` (built by `scripts/build_reference.py`), `org_aliases.csv` |
 
 **Raw vs derived is the core design.** Raw tables (`sessions`, `committees`,
-`hearings`, `testimony`, `documents`) hold what the site returned. Derived tables
+`hearings`, `testimony`, `documents`, `bill_status`) hold what the site returned. Derived tables
 (`submitters`, `positions`, `form_letters`) are DELETED AND FULLY REBUILT on each
 run of their step. So rule changes only need the derived step rerun, never a
 re-crawl. Everything joins on `testimony_id` (= upstream id = PDF id).
@@ -69,7 +73,7 @@ Base `https://legislature.maine.gov/bills/`:
 - `getSessionNumbersDesc.asp` · `getTestyCmte.asp?snum=` ·
   `getTestyCmteDates.asp?snum=&comCode=` ·
   `getTestyForCmteHearingDate.asp?hearingDate=YYYY-MM-DD&comCode=` ·
-  `getTestimonyDoc.asp?id=` (PDF)
+  `getTestimonyDoc.asp?id=` (PDF) · `display_ps.asp?LD=&snum=` (bill status page, HTML)
 - `comCode` must be the SHORT code (`HHS`). The committee's full name silently
   returns `[]`.
 - Dates come back as Java strings (`"Tue Feb 4 00:00:00 EST 2025"`); parse with
@@ -78,7 +82,9 @@ Base `https://legislature.maine.gov/bills/`:
 - `ld == 0` means no LD number (budget/unprinted); models convert it to `None`.
 - No support/oppose field exists upstream; positions come only from PDF text.
 - `robots.txt` disallows `default_ps.asp`, `search_ps.asp`, LawMakerWeb. Do not
-  scrape those (this is why bill outcomes aren't joined yet).
+  scrape those. The per-bill page `display_ps.asp` is NOT disallowed and is server-rendered:
+  final disposition, governor's action, chaptered law, committee report, divided reports
+  (signers per report). No sponsor or party on it (that's LawMakerWeb).
 - Budget/unprinted testimony uses another endpoint (`TestimonyByRequestId`),
   not crawled yet.
 
@@ -143,6 +149,20 @@ Base `https://legislature.maine.gov/bills/`:
   `download: ...`, `parse: ...` or `not_pdf` (`db.RETRYABLE_ERROR_SQL`), and `text` and
   `text_source` are NULL, so scans and OCR'd/imported text are never refetched or
   overwritten. `client.document()` is not disk-cached, so a retry really re-downloads.
+
+**Bill outcomes**
+- `bill_status` is raw, keyed `(session_number, ld)` (testimony's `ld`; LD 0/None skipped).
+  `fetch-status` queues bills that have no row, an `error`, or no `final_disposition` yet
+  (open bills refetch, past the cache). Pages are cached as `data/raw/display_ps/<s>-<ld>.html`
+  so `--reparse` re-reads them offline after a parser change.
+- `outcomes.outcome_of` rule order matters: a chapter number = `law`; then veto, ONTP, law
+  wording, withdrawn, died. Unmatched wordings land in `other`; check that bucket after a
+  new session. `report_of`: a divided report with no ONTP side counts as `otp`; a report
+  that is only a date (some pages) falls back to the action code ("Reported Out, ..., ONTP";
+  `A/B` codes = `divided`, majority unknown); "Not Reported Out" = `none`.
+- Voices exclude `legislator` (sponsors testify in support) and count each form-letter group
+  once. `cell_pass_rate` is a leave-one-out committee+session baseline over closed bills.
+- These are associations, not effects: opposition mobilizes where a bill has a chance.
 
 ## Making common changes
 
@@ -242,6 +262,13 @@ Public and MECEP are `organization`.
   (`--llm-limit 0` = cached answers only, no API calls): plain `positions` drops the
   cached Claude answers from the table. The API key lives in the user's own terminal,
   not the agent shell, so new Claude calls are run by the user.
+
+- Bill outcomes (2026-10-29, ~3.7 h at 1 req/sec): 13,181 status pages, 13,154 final,
+  18 open, 9 `not_bill_page`, 0 download errors, 0 paper mismatches. Results in README
+  "Does testimony track the outcome?": pass rate falls from 51% (<10% opposed) to 13% (90%+),
+  but is ~flat by opposition within each committee report. Not yet in `data/public/`;
+  no sponsor/party (LawMakerWeb is disallowed). Rerun `fetch-status` after a session ends
+  (open bills refetch).
 
 Full DB (126th-132nd, 4,083 hearings, 181,131 records, classified 2026-10-22): town 42.4%,
 organization 37.3%, government 8.8%, legislator 7.7%, none 2.4%, unknown 1.1%,

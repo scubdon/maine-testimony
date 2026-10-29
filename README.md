@@ -55,6 +55,8 @@ mtestimony classify
 mtestimony fetch-docs --orgs-only --limit 500   # OCRs new scans if ocrmypdf is installed
 mtestimony positions
 mtestimony form-letters
+mtestimony fetch-status                     # each bill's committee report + final outcome
+mtestimony outcomes                         # pass rate by share of testimony opposed
 mtestimony export                           # -> data/public/
 ```
 
@@ -75,8 +77,9 @@ step, failing if the site's endpoints stop answering as expected. It commits not
 - One request per second by default, at most two in flight, exponential backoff on
   5xx/429 responses.
 - An identifying `User-Agent` with a contact URL (`MTESTIMONY_CONTACT`).
-- `robots.txt` disallows bill search and LawMakerWeb. This project only uses the testimony
-  endpoints, which robots.txt does not restrict.
+- `robots.txt` disallows bill search (`default_ps.asp`, `search_ps.asp`) and LawMakerWeb.
+  This project uses only the testimony endpoints and the per-bill status page
+  (`display_ps.asp`), which robots.txt does not restrict.
 - An optional raw-response cache, so re-processing never needs the network.
 
 ## Methodology
@@ -212,6 +215,59 @@ Positions, n = 200 (196 letters that state a position, 4 that don't):
 The regexes rarely mistake one side for the other: most of their errors are letters left
 `unknown`, which is the gap the LLM fallback closes.
 
+### Does testimony track the outcome? (`outcomes.py`)
+
+`fetch-status` reads each bill's status page (13,181 bills with testimony, fetched
+2026-10-29; 13,154 had a final outcome). `outcomes` joins it to the positions. In this
+section a "voice" is one non-legislator letter, with each form-letter campaign counted
+once. A bill's opposition share is oppose / (support + oppose). The tables below cover
+the 5,947 closed bills with at least 5 voices; overall, 41% of the 12,817 closed bills
+with positioned testimony became law.
+
+| Share opposed | Bills | Became law | vs. committee avg | Committee said ONTP |
+|---|---|---|---|---|
+| under 10% | 1,903 | 50.7% | +9.9 pts | 14.4% |
+| 10-25% | 1,176 | 46.9% | +4.6 | 21.4% |
+| 25-50% | 1,059 | 36.1% | −7.6 | 25.8% |
+| 50-75% | 983 | 23.5% | −18.6 | 34.5% |
+| 75-90% | 596 | 16.8% | −25.2 | 37.9% |
+| 90% or more | 230 | 13.0% | −27.5 | 52.2% |
+
+"vs. committee avg" compares each bill with the other bills in the same committee and
+session. So the drop isn't just that some committees kill more bills.
+
+**Bills that are mostly opposed rarely pass, but the link runs through the committee.**
+Among bills with the same committee report, the share opposed barely changes the pass
+rate:
+
+| Share opposed | Unanimous OTP | Split, OTP majority | Split, ONTP majority |
+|---|---|---|---|
+| under 10% | 71% | 52% | 4% |
+| 25-50% | 82% | 53% | 2% |
+| 75-90% | 76% | 42% | 0% |
+| 90% or more | 80% | 52% | 0% |
+
+So heavy opposition goes with committees voting the bill down. Once a committee
+recommends a bill, the floor follows the committee, not the testimony. The low 71% for
+favored, uncontroversial bills is mostly bills that "died on adjournment" after an OTP
+report (14% in that bin), usually because they weren't funded.
+
+More voices don't help opponents. Among bills at least 75% opposed, those with 100+
+distinct voices passed more often (28%) than those with 5-19 (14%). Large campaigns
+form around high-profile bills, which often already have majority backing. The bills
+passed over the most opposition were the 131st's abortion and health-care shield bills
+(LD 1619, LD 1343, LD 227), the 129th's vaccine-exemption repeal (LD 798) and
+ranked-choice voting for presidential elections (LD 1083). All five had split committee
+reports. Counting every form letter (`--raw`) gives the same pattern.
+
+These are associations, not causal effects:
+- Opponents mobilize where a bill might pass, and lawmakers and testifiers react to the
+  same features of a bill (party, cost, who is asking).
+- Testimony could shape the committee vote, or both could reflect the bill's politics.
+  This data can't tell which.
+- Sponsor and party aren't joined (they're on LawMakerWeb, which robots.txt disallows),
+  so partisanship isn't controlled for.
+
 ## The dataset (`data/public/`)
 
 | File | Grain |
@@ -253,6 +309,9 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
   (zero pages), and about 20 that fail to download or aren't PDFs.
 - The Legislature notes the online record "may not represent a complete record of a
   hearing."
+- Bill outcomes are joined on (session, LD). 9 LDs had no status page and 18 were still
+  open at fetch time. Bills with no positioned testimony aren't in the analysis, so the
+  pass rates describe bills people testified on, not all bills.
 - Budget and unprinted-bill testimony is served by a separate endpoint
   (`TestimonyByRequestId`) that is not crawled yet.
 
@@ -261,8 +320,9 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
 - [ ] Full historical crawl (126th–133rd)
 - [x] Hand-label 300 submitters and 200 documents; publish accuracy
 - [x] LLM fallback for `unknown` positions, validated against the hand labels
-- [ ] Join bill outcomes (passed, died, vetoed). Status pages are disallowed by
-      robots.txt, so this needs another source.
+- [x] Join bill outcomes (committee report, passed, died, vetoed) from each bill's
+      status page
+- [ ] Bill outcomes in `data/public/bills.csv`
 - [ ] Findings write-up and interactive charts (GitHub Pages)
 
 ## Development

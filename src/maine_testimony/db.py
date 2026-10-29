@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from .bill_status import BillStatus
 from .models import Committee, Session, TestimonyRecord
 
 SCHEMA = """
@@ -65,6 +66,27 @@ CREATE TABLE IF NOT EXISTS documents (
     text_source  TEXT             -- pdf (embedded layer) | ocrmypdf | an import-ocr --source
 );
 
+-- One row per bill (session, LD) that has testimony, parsed from its display_ps.asp
+-- status page (`mtestimony fetch-status`). Raw: refetched only while still open.
+CREATE TABLE IF NOT EXISTS bill_status (
+    session_number        INTEGER NOT NULL,
+    ld                    INTEGER NOT NULL,
+    paper_number          TEXT,   -- as the page gives it, e.g. HP0165
+    final_disposition     TEXT,   -- "Enacted", "Ought Not to Pass Pursuant To Joint Rule 310"...
+    final_date            TEXT,
+    governor_action       TEXT,   -- "Signed", "Veto", "Unsigned", ...
+    law_type              TEXT,   -- ACTPUB | ACTPRV | RESLV ... when chaptered
+    chapter               INTEGER,
+    committee             TEXT,
+    committee_action      TEXT,   -- "Reported Out, Mar 12, 2025, OTP-AM/ONTP"
+    committee_report      TEXT,   -- "Ought To Pass" | "JUD, MAJ: ...; JUD, MIN: ..."
+    committee_report_date TEXT,
+    divided_reports       TEXT,   -- JSON [{label, report, signers}], NULL if unanimous
+    fetched_at            TEXT NOT NULL,
+    error                 TEXT,   -- download: ... | not_bill_page
+    PRIMARY KEY (session_number, ld)
+);
+
 -- Derived tables: fully rebuilt by `mtestimony classify` / `positions`.
 CREATE TABLE IF NOT EXISTS submitters (
     testimony_id   INTEGER PRIMARY KEY REFERENCES testimony(id),
@@ -106,6 +128,10 @@ CREATE TABLE IF NOT EXISTS form_letters (
     group_size   INTEGER NOT NULL
 );
 """
+
+
+def _iso(d: date | None) -> str | None:
+    return d.isoformat() if d else None
 
 
 def _now() -> str:
@@ -265,7 +291,54 @@ class Store:
         )
         self.conn.commit()
 
+    def save_bill_status(
+        self, session: int, ld: int, status: BillStatus | None, *, error: str | None = None
+    ) -> None:
+        s = status or BillStatus()
+        self.conn.execute(
+            "INSERT OR REPLACE INTO bill_status VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                session,
+                ld,
+                s.paper_number,
+                s.final_disposition,
+                _iso(s.final_date),
+                s.governor_action,
+                s.law_type,
+                s.chapter,
+                s.committee,
+                s.committee_action,
+                s.committee_report,
+                _iso(s.committee_report_date),
+                s.divided_json(),
+                _now(),
+                error,
+            ),
+        )
+        self.conn.commit()
+
     # ---------------------------------------------------------------- reads
+    def bills_needing_status(
+        self, sessions: list[int] | None = None, limit: int | None = None, random: bool = False
+    ) -> list[tuple[int, int, bool]]:
+        """``(session, ld, seen_before)`` for bills with testimony whose status page is
+        missing, failed, or still has no final disposition (the bill is still moving)."""
+        where = "t.ld IS NOT NULL AND (b.ld IS NULL OR b.error IS NOT NULL"
+        where += " OR b.final_disposition IS NULL)"
+        params: list = []
+        if sessions:
+            where += f" AND t.session_number IN ({','.join('?' * len(sessions))})"
+            params += sessions
+        order = "RANDOM()" if random else "t.session_number DESC, t.ld"
+        sql = (
+            "SELECT DISTINCT t.session_number, t.ld, b.ld IS NOT NULL FROM testimony t"
+            " LEFT JOIN bill_status b ON b.session_number = t.session_number AND b.ld = t.ld"
+            f" WHERE {where} ORDER BY {order}"
+        )
+        if limit:
+            sql += f" LIMIT {int(limit)}"
+        return [(s, ld, bool(seen)) for s, ld, seen in self.conn.execute(sql, params)]
+
     def llm_position(
         self, testimony_id: int, text_sha256: str, model: str, prompt_version: str
     ) -> sqlite3.Row | None:

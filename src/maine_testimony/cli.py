@@ -11,6 +11,7 @@ from typing import Annotated
 
 import typer
 
+from .bill_status import fetch_bill_statuses, reparse_bill_pages
 from .client import TestimonyClient
 from .crawl import crawl as run_crawl
 from .db import Store
@@ -25,6 +26,13 @@ from .evaluate import (
 from .form_letters import run_form_letters
 from .llm_positions import ClaudePositions, LLMFallback
 from .ocr import ocr_pdf, ocrmypdf_available
+from .outcomes import (
+    bill_table,
+    by_opposition,
+    by_report,
+    by_volume,
+    passed_despite_opposition,
+)
 from .pipeline import (
     OCRFn,
     export_public,
@@ -249,6 +257,40 @@ def import_ocr_cmd(
         typer.echo("Rerun `mtestimony positions` and `form-letters` to use the new text.")
 
 
+@app.command("fetch-status")
+def fetch_status(
+    db: DB = DEFAULT_DB,
+    session: Annotated[
+        list[int] | None, typer.Option("--session", "-s", help="Only these sessions.")
+    ] = None,
+    limit: Annotated[int | None, typer.Option(help="Max bills this run.")] = None,
+    random: Annotated[bool, typer.Option(help="Pick bills in random order.")] = False,
+    rate: Annotated[float, typer.Option(help="Minimum seconds between requests.")] = 1.0,
+    cache_dir: Annotated[Path, typer.Option(help="Raw page cache dir.")] = DEFAULT_CACHE,
+    reparse: Annotated[
+        bool, typer.Option(help="Re-parse cached pages only (no network), e.g. after a fix.")
+    ] = False,
+) -> None:
+    """Fetch each bill's status page: committee report and final disposition.
+
+    Only bills with testimony. Bills without a final disposition yet are refetched on
+    every run.
+    """
+    store = Store(db)
+    if reparse:
+        typer.echo(dict(reparse_bill_pages(store, cache_dir)))
+        return
+
+    async def go():
+        async with TestimonyClient(min_interval=rate, cache_dir=cache_dir) as client:
+            stats = await fetch_bill_statuses(
+                client, store, sessions=session, limit=limit, random=random
+            )
+            typer.echo(f"{dict(stats)} requests={client.requests_made}")
+
+    asyncio.run(go())
+
+
 LLM = Annotated[
     bool,
     typer.Option(
@@ -297,6 +339,51 @@ def export(
 ) -> None:
     """Write the public, privacy-reduced dataset (Parquet + CSV summaries)."""
     typer.echo(export_public(Store(db), out))
+
+
+@app.command()
+def outcomes(
+    db: DB = DEFAULT_DB,
+    min_voices: Annotated[
+        int, typer.Option(help="Only bills with at least N public support/oppose voices.")
+    ] = 5,
+    raw: Annotated[
+        bool, typer.Option(help="Count every form letter, not one voice per campaign.")
+    ] = False,
+    csv: Annotated[Path | None, typer.Option(help="Also write the bill-level table here.")] = (
+        Path("data/analysis/bill_outcomes.csv")
+    ),
+) -> None:
+    """Pass rate by how one-sided the public testimony was (needs fetch-status first)."""
+    df = bill_table(Store(db))
+    if df.empty:
+        typer.echo("No bills with both positions and a status page; run fetch-status.", err=True)
+        raise typer.Exit(1)
+    pct = {"float_format": lambda v: f"{v:6.1%}"}
+    closed = df[df.outcome.ne("open")]
+    typer.echo(
+        f"{len(df)} bills ({len(closed)} closed); overall pass rate "
+        f"{closed.passed.mean():.1%}. Outcomes: {closed.outcome.value_counts().to_dict()}"
+    )
+    col = "oppose_share_raw" if raw else "oppose_share"
+    typer.echo(
+        f"\nBy share of public testimony opposed ({col}, bills with >= {min_voices} "
+        "voices).\nvs_cell_avg = pass rate minus the committee+session average."
+    )
+    typer.echo(by_opposition(df, min_voices, col).to_string(**pct))
+    typer.echo(
+        "\nPass rate (bills) by opposition WITHIN each committee report. Flat columns mean"
+        "\nthe link runs through the committee's report, not what happens after it:"
+    )
+    typer.echo(by_report(df, min_voices, col).to_string())
+    typer.echo("\nBills with >= 75% public opposition, by number of voices:")
+    typer.echo(by_volume(df).to_string(**pct))
+    typer.echo("\nPassed despite >= 75% opposition (>= 20 voices), most opposed first:")
+    typer.echo(passed_despite_opposition(df).to_string(index=False, max_colwidth=60))
+    if csv:
+        csv.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(csv, index=False)
+        typer.echo(f"\nwrote {len(df)} bills to {csv}")
 
 
 class LabelKind(StrEnum):
@@ -389,6 +476,7 @@ def stats(db: DB = DEFAULT_DB) -> None:
         "positions",
         "llm_positions",
         "form_letters",
+        "bill_status",
     ):
         typer.echo(f"{t:<12}{store.count(t):>9}")
     scans = len(store.scanned_documents())

@@ -171,6 +171,21 @@ class TestimonyClient:
         resp = await self._get("getTestimonyDoc.asp", {"id": testimony_id})
         return resp.content
 
+    def bill_page_cache_path(self, session: int, ld: int) -> Path | None:
+        return self.cache_dir / "display_ps" / f"{session}-{ld}.html" if self.cache_dir else None
+
+    async def bill_page(self, session: int, ld: int, *, refresh: bool = False) -> str:
+        """The bill's status page (HTML). Cached by readable name so ``fetch-status
+        --reparse`` can re-read every page offline after a parser change."""
+        path = self.bill_page_cache_path(session, ld)
+        if path and path.exists() and not refresh:
+            return path.read_text(encoding="utf-8")
+        resp = await self._get("display_ps.asp", {"LD": ld, "snum": session})
+        if path:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(resp.text, encoding="utf-8")
+        return resp.text
+
 
 async def gather_limited(coros: Sequence, limit: int = 8) -> list:
     """Run coroutines with a cap on how many are scheduled at once (the client
