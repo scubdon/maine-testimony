@@ -19,6 +19,8 @@ def test_aliases():
     assert org_key("MACDL") == org_key("Maine Association of Criminal Defense Lawyers")
     # Renamed in 2019: same organization under both names.
     assert org_key("Maine Heritage Policy Center") == "maine policy institute"
+    assert org_key("Maine Equal Justice Partners") == "maine equal justice"
+    assert org_key("Equal Justice Partners") == "maine equal justice"
 
 
 def test_cluster_merges_typos_and_picks_common_spelling():
