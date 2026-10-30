@@ -330,6 +330,20 @@ Key columns in `testimony.parquet`: `testimony_id`, `session_number`, `committee
 `town`, `town_geoid`, `legislator_name` (legislators only), `position`,
 `position_method`, `form_letter_group_size`, `doc_url`.
 
+## Findings site (`docs/`)
+
+`docs/` is a static GitHub Pages site (Settings → Pages → deploy from `main`, folder
+`/docs`). Its charts read one file, `docs/data/site.json`, built from the local database:
+
+```bash
+python scripts/build_site_data.py      # -> docs/data/site.json (aggregates only)
+python3 -m http.server -d docs 8765    # preview at http://localhost:8765
+```
+
+The JSON holds counts and shares only: no private individual's name, no raw organization
+field, no letter text. Repeat-testifier counts group people inside the script and keep
+only bucket sizes.
+
 ## Privacy and ethics
 
 Testimony is a public record, but most of it comes from private individuals, and the
@@ -372,7 +386,7 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
 - [x] Sponsor and party from Open States (128th onward)
 - [x] Split the outcome analysis by sponsor's majority/minority party (128th onward)
 - [ ] Bill outcomes in `data/public/bills.csv`
-- [ ] Findings write-up and interactive charts (GitHub Pages)
+- [x] Findings write-up and interactive charts (GitHub Pages, `docs/`; first draft)
 
 ## Development
 

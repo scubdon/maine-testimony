@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Who Testifies in Augusta?</title>
+  <meta name="description" content="Thirteen years of written testimony to Maine Legislature committees: who submits it, which side they take, and how it lines up with what happens to bills.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top">Who testifies in Augusta?</a>
+    <nav>
+      <a href="#growth">Growth</a>
+      <a href="#who">Who</a>
+      <a href="#campaigns">Campaigns</a>
+      <a href="#orgs">Organizations</a>
+      <a href="#where">Where</a>
+      <a href="#outcomes">Outcomes</a>
+      <a href="#method">Method</a>
+    </nav>
+  </div>
+</div>
+
+<main id="top">
+<header class="hero wrap">
+  <p class="kicker">Maine Legislature · written testimony · <span data-k="span"></span></p>
+  <h1>Who testifies in Augusta?</h1>
+  <p class="dek">Every bill in Maine gets a public hearing, and anyone can send the committee a
+    letter. This project collected all <b class="k" data-k="submissions"></b> of them posted
+    since 2013, sorted out who wrote each one, read which side it took, and lined them up with
+    what happened to the bill.</p>
+  <div class="tiles">
+    <div class="tile"><div class="v" data-k="submissions"></div><div class="l">submissions</div></div>
+    <div class="tile"><div class="v" data-k="bills"></div><div class="l">bills with testimony</div></div>
+    <div class="tile"><div class="v" data-k="hearings"></div><div class="l">committee hearing days</div></div>
+    <div class="tile"><div class="v" data-k="orgs"></div><div class="l">organizations</div></div>
+    <div class="tile"><div class="v" data-k="towns"></div><div class="l">Maine towns heard from</div></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <h2 style="margin-top:8px">What we found</h2>
+  <ol class="findings">
+    <li><b>Testimony has more than tripled.</b> The <span data-k="s_last_label"></span>
+      Legislature received <b class="k" data-k="s_last_n"></b> submissions, against
+      <span data-k="s_first_n"></span> in the <span data-k="s_first_label"></span>, with about the
+      same number of hearing days. <a href="#growth">Growth</a></li>
+    <li><b>Attention is concentrating.</b> The busiest 1% of bills drew
+      <span data-k="top1_first"></span> of all testimony in 2013–14 and
+      <b class="k" data-k="top1_last"></b> in 2025–26. <a href="#growth">Concentration</a></li>
+    <li><b>Big turnouts are mostly against something.</b> On bills that drew 500 or more
+      letters, <b class="k" data-k="vol_500_oppose"></b> of positions were opposed. On every
+      smaller size of bill, opposition stays between a quarter and a third.
+      <a href="#campaigns">Campaigns</a></li>
+    <li><b>Organizations line up in two camps.</b> Among the 30 most active groups, business
+      associations and labor/advocacy groups take opposite sides on shared bills most of the
+      time. <a href="#orgs">Organizations</a></li>
+    <li><b>A small core does much of the writing.</b> <span data-k="rep_11_people"></span> of
+      individuals testified 11 or more times; they wrote <b class="k" data-k="rep_11_share"></b>
+      of all individuals' letters. <a href="#where">Where</a></li>
+    <li><b>Mostly-opposed bills rarely pass, but the committee is where that shows.</b> Pass
+      rates fall from <span data-k="pass_lo"></span> to <b class="k" data-k="pass_hi"></b> as
+      opposition rises. Among bills with the same committee report, opposition barely moves
+      the pass rate. <a href="#outcomes">Outcomes</a></li>
+    <li><b>Party doesn't explain it away.</b> Majority-party bills passed twice as often
+      (<span data-k="maj_pass"></span> vs <span data-k="min_pass"></span>), and opposition
+      still tracks failure within each side. <a href="#party">Party</a></li>
+  </ol>
+</div>
+
+<!-- ======================= GROWTH ======================= -->
+<section id="growth">
+  <div class="wrap">
+    <p class="kicker">1 · Growth</p>
+    <h2>More people are writing to the Legislature</h2>
+    <div class="prose">
+      <p class="lede">Written testimony went from about <span data-k="s_first_n"></span> letters
+        in the <span data-k="s_first_label"></span> Legislature (2013–14) to
+        <span data-k="s_last_n"></span> in the <span data-k="s_last_label"></span> (2025–26).
+        The number of hearing days barely moved, so each bill now hears from more people:
+        the median bill drew <span data-k="med_first"></span> letters then and
+        <span data-k="med_last"></span> now.</p>
+      <p>Most of the growth came from individuals writing in, the group shown in green. The
+        129th's jump came with a wave of form letters: a fifth of individuals' letters that
+        session matched other letters on the same bill, the most of any Legislature.</p>
+    </div>
+
+    <figure class="chart" id="fig-sessions">
+      <h3>Submissions per Legislature, by who sent them</h3>
+      <p class="sub">Each two-year Legislature. Hover a segment for counts.</p>
+      <div class="legend" data-legend="groups"></div>
+      <div class="plot"></div>
+      <figcaption>The 132nd (2025–26) includes hearings through April 2026. "Unlabeled" is
+        a blank or placeholder organization field, or one the classifier couldn't place.</figcaption>
+    </figure>
+
+    <figure class="chart" id="fig-monthly">
+      <h3>Submissions by hearing month</h3>
+      <p class="sub">Testimony follows the legislative calendar: long first sessions in odd
+        years, short second sessions in even years, nothing in the summer and fall.</p>
+      <div class="plot"></div>
+    </figure>
+
+    <div class="grid2">
+      <figure class="chart" id="fig-top1">
+        <h3>Share of testimony on the busiest 1% of bills</h3>
+        <p class="sub">The top 1% of bills by submissions, each Legislature.</p>
+        <div class="plot"></div>
+      </figure>
+      <figure class="chart" id="fig-formshare">
+        <h3>Share of public testimony that is a form letter</h3>
+        <p class="sub">Letters from individuals that match 1+ other letters on the same bill at
+          90% similarity.</p>
+        <div class="plot"></div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= WHO ======================= -->
+<section id="who">
+  <div class="wrap">
+    <p class="kicker">2 · Who</p>
+    <h2>Residents write most of the letters. Organizations write most of the rest.</h2>
+    <div class="prose">
+      <p class="lede">The submission form has one free-text "organization" box. Most residents
+        type their town into it; groups type their name. Sorting
+        <span data-k="submissions"></span> of those boxes gives
+        <b class="k" data-k="share_ind"></b> individuals,
+        <b class="k" data-k="share_org"></b> organizations,
+        <span data-k="share_gov"></span> government bodies and
+        <span data-k="share_leg"></span> legislators.</p>
+      <p>Each group leans differently. Legislators testify mostly for bills (usually their own).
+        Government agencies often take no side ("neither for nor against") and explain how a
+        bill would work. Individuals oppose more often than any other group.</p>
+    </div>
+
+    <figure class="chart" id="fig-posgroup">
+      <h3>Which side each group takes</h3>
+      <p class="sub">Share of each group's letters by stated position.</p>
+      <div class="legend" data-legend="positions"></div>
+      <div class="plot"></div>
+      <figcaption>Position is read from the letter's text by ordered rules, with Claude reading
+        the ones the rules can't place. "Unclear" letters state no position the reader could
+        verify.</figcaption>
+    </figure>
+
+    <figure class="chart" id="fig-committees">
+      <h3>Committees by volume and how much of it is opposition</h3>
+      <p class="sub">Committees with 2,000+ submissions since 2013. Bar = submissions; the dot
+        on the right = share of positions opposed.</p>
+      <div class="plot"></div>
+    </figure>
+  </div>
+</section>
+
+<!-- ======================= CAMPAIGNS ======================= -->
+<section id="campaigns">
+  <div class="wrap">
+    <p class="kicker">3 · Campaigns</p>
+    <h2>The biggest turnouts are opposition campaigns</h2>
+    <div class="prose">
+      <p class="lede">Most bills draw a handful of letters, split roughly 60/30 for and against.
+        The few bills that draw hundreds look different: on the
+        <span data-k="vol_500_bills"></span> bills with 500+ letters, opposition outnumbers
+        support about two to one.</p>
+      <p>Much of that volume is organized. The project groups near-identical letters on the same
+        bill: <span data-k="camp_letters"></span> letters fall into
+        <span data-k="camp_groups"></span> such groups. The largest, on the 132nd's
+        e-cigarette bill, is <span data-k="camp_max"></span> copies of the same letter.</p>
+    </div>
+
+    <figure class="chart" id="fig-volume">
+      <h3>Positions by how much testimony a bill drew</h3>
+      <p class="sub">Letters from everyone except legislators, grouped by the bill's total
+        submissions.</p>
+      <div class="legend" data-legend="positions3"></div>
+      <div class="plot"></div>
+    </figure>
+
+    <div>
+      <figure class="chart" id="fig-campaigns">
+        <h3>Largest form-letter campaigns</h3>
+        <p class="sub">Copies of one near-identical letter on one bill.</p>
+        <div class="legend" data-legend="positions2"></div>
+        <div class="plot"></div>
+      </figure>
+      <figure class="chart" id="fig-topbills">
+        <h3>The 20 most-testified bills</h3>
+        <p class="sub">Submissions, the support/oppose split and what happened to the bill.</p>
+        <div class="tablewrap"><table></table></div>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= ORGANIZATIONS ======================= -->
+<section id="orgs">
+  <div class="wrap">
+    <p class="kicker">4 · Organizations</p>
+    <h2>The regulars, and who they agree with</h2>
+    <div class="prose">
+      <p class="lede">The Maine Municipal Association has testified more than any other group,
+        on <span data-k="mma_bills"></span> bills. Advocacy groups tend to pick a side; trade and
+        government associations take "neither for nor against" far more often.</p>
+    </div>
+
+    <figure class="chart" id="fig-orgs">
+      <h3>The 30 most frequent organizations and agencies</h3>
+      <p class="sub">Share of each one's positioned letters. Sorted by share in support.</p>
+      <div class="legend" data-legend="positions3"></div>
+      <div class="plot"></div>
+    </figure>
+
+    <div class="prose">
+      <p>When two frequent groups both took a side on the same bill, how often was it the same
+        side? Ordering the groups so that allies sit next to each other splits them into two
+        blocs: business and industry associations on one end, labor, health and anti-poverty
+        groups on the other. Environmental and municipal groups sit in between.</p>
+    </div>
+    <figure class="chart" id="fig-pairs">
+      <h3>How often pairs of organizations took the same side</h3>
+      <p class="sub">Organizations with 200+ positions; pairs with 25+ shared bills. Blue = mostly
+        the same side, red = mostly opposite. Blank = too few shared bills. Hover a cell for
+        the pair.</p>
+      <div class="legend" data-legend="agree"></div>
+      <div class="plot"></div>
+    </figure>
+  </div>
+</section>
+
+<!-- ======================= WHERE ======================= -->
+<section id="where">
+  <div class="wrap">
+    <p class="kicker">5 · Where</p>
+    <h2>Where the letters come from</h2>
+    <div class="prose">
+      <p class="lede">Individuals who name a Maine town can be placed on a map. Per resident,
+        <span data-k="county_top"></span> County writes the most and
+        <span data-k="county_bottom"></span> County the least: a
+        <span data-k="county_ratio"></span>-fold gap. The midcoast writes the most per resident;
+        Portland and its suburbs send the most letters overall.</p>
+    </div>
+
+    <figure class="chart" id="fig-map">
+      <h3>Letters from individuals, per 1,000 residents</h3>
+      <p class="sub">Counties shaded by letters per 1,000 residents (2020 Census). Circles: towns,
+        sized by letters.</p>
+      <div class="controls" role="group" aria-label="Map layers">
+        <button type="button" data-layer="both" aria-pressed="true">Counties + towns</button>
+        <button type="button" data-layer="counties" aria-pressed="false">Counties only</button>
+      </div>
+      <div class="plot"></div>
+      <figcaption>Only individuals who gave a recognizable Maine town are mapped
+        (<span data-k="mapped_ind"></span> letters). Town circles are placed at each town's Census
+        center point.</figcaption>
+    </figure>
+
+    <div class="prose">
+      <p>Most people write once. A few write constantly: <span data-k="rep_once"></span> of
+        individuals sent a single letter, while the
+        <span data-k="rep_26"></span> who sent 26 or more wrote
+        <span data-k="rep_26_share"></span> of all individuals' letters. People are counted by
+        first name, last name and town, so the same person writing from two towns counts twice.</p>
+    </div>
+    <figure class="chart" id="fig-repeat">
+      <h3>Individuals by how many letters they sent</h3>
+      <p class="sub">Share of people vs. share of individuals' letters, 2013–2026.</p>
+      <div class="legend" data-legend="repeat"></div>
+      <div class="plot"></div>
+    </figure>
+  </div>
+</section>
+
+<!-- ======================= OUTCOMES ======================= -->
+<section id="outcomes">
+  <div class="wrap">
+    <p class="kicker">6 · Outcomes</p>
+    <h2>Does testimony track what happens to a bill?</h2>
+    <div class="prose">
+      <p class="lede">Each bill's status page records its committee report and final outcome.
+        Joining that to the testimony: <span data-k="pass_all"></span> of the
+        <span data-k="closed_pos"></span> closed bills with positioned testimony became law. Among
+        the <span data-k="closed5"></span> bills with at least five public voices, the pass
+        rate falls steadily as the share opposed rises.</p>
+      <p>A "voice" here is one letter from anyone but a legislator, with each form-letter
+        campaign counted once. Share opposed = oppose ÷ (support + oppose).</p>
+    </div>
+
+    <figure class="chart" id="fig-outcome">
+      <h3>Pass rate and committee rejection, by share of testimony opposed</h3>
+      <p class="sub">Closed bills with 5+ public voices.</p>
+      <div class="legend" data-legend="outcome"></div>
+      <div class="plot"></div>
+      <figcaption>"Committee recommended against" = a unanimous Ought Not to Pass report, or a
+        split report whose larger side was ONTP. Compared with other bills in the same committee
+        and session, the least-opposed bills passed <span data-k="vs_lo"></span> more often and the
+        most-opposed <span data-k="vs_hi"></span> less often, so this isn't just some committees
+        killing more bills.</figcaption>
+    </figure>
+
+    <figure class="chart" id="fig-scatter">
+      <h3>Every bill</h3>
+      <p class="sub">Each dot is a closed bill with 5+ public voices. Bills that became law in
+        purple; the rest in gray.</p>
+      <div class="legend" data-legend="passed"></div>
+      <div class="plot"></div>
+    </figure>
+
+    <div class="prose">
+      <h3 style="font-size:22px;font-family:var(--serif);margin:28px 0 8px">Once a committee
+        decides, testimony stops mattering</h3>
+      <p>Split the same bills by their committee report and the slope nearly vanishes. A bill
+        with a unanimous "ought to pass" report becomes law about three times in four whether
+        its testimony was 5% opposed or 95%. So heavy opposition goes with committees voting a
+        bill down; after that, the floor follows the committee.</p>
+    </div>
+    <figure class="chart" id="fig-byreport">
+      <h3>Pass rate by share opposed, within each kind of committee report</h3>
+      <p class="sub">Same bills as above. Columns read left (little opposition) to right (heavy
+        opposition). Hover for counts.</p>
+      <div class="multiples"></div>
+      <figcaption>The low pass rate for favored, uncontroversial bills with an OTP report is
+        mostly bills that "died on adjournment", usually because they weren't funded.</figcaption>
+    </figure>
+
+    <div class="prose" id="party">
+      <h3 style="font-size:22px;font-family:var(--serif);margin:28px 0 8px">Party matters,
+        and so does opposition</h3>
+      <p>Sponsor party comes from Open States (128th Legislature on). Bills from the party that
+        controlled the sponsor's chamber became law <span data-k="maj_pass"></span> of the time;
+        minority-party bills <span data-k="min_pass"></span>. Majority bills also drew less
+        opposition (<span data-k="maj_opp"></span> opposed on average vs
+        <span data-k="min_opp"></span>). Within each side, opposition still goes with failure,
+        and with the committee recommending against.</p>
+    </div>
+    <div class="grid2">
+      <figure class="chart" id="fig-party-pass">
+        <h3>Became law</h3>
+        <p class="sub">By sponsor's standing in their chamber.</p>
+        <div class="legend" data-legend="party"></div>
+        <div class="plot"></div>
+      </figure>
+      <figure class="chart" id="fig-party-ontp">
+        <h3>Committee recommended against</h3>
+        <p class="sub">Unanimous ONTP, or a split report with an ONTP majority.</p>
+        <div class="legend" data-legend="party"></div>
+        <div class="plot"></div>
+      </figure>
+    </div>
+
+    <div class="grid2" style="margin-top:24px">
+      <figure class="chart" id="fig-volume-pass">
+        <h3>More opponents don't help</h3>
+        <p class="sub">Bills at least 75% opposed: pass rate by number of public voices.</p>
+        <div class="plot"></div>
+        <figcaption>Large campaigns form around high-profile bills, which often already have
+          majority backing.</figcaption>
+      </figure>
+      <figure class="chart" id="fig-despite">
+        <h3>Passed over the most opposition</h3>
+        <p class="sub">Bills 75%+ opposed with 20+ voices that became law, by opposing voices.</p>
+        <div class="tablewrap"><table></table></div>
+      </figure>
+    </div>
+
+    <p class="callout"><b>These are associations, not effects.</b> Opponents mobilize where a
+      bill might pass, and lawmakers and letter-writers react to the same things about a bill
+      (its sponsor, its cost, who is asking). This data can't say whether testimony changed any
+      vote.</p>
+  </div>
+</section>
+
+<!-- ======================= METHOD ======================= -->
+<section id="method">
+  <div class="wrap">
+    <p class="kicker">7 · Method</p>
+    <h2>How this was built, and how accurate it is</h2>
+    <div class="prose">
+      <p>The Legislature's testimony page is a JavaScript shell over a few undocumented JSON
+        endpoints. A polite scraper (one request per second, identifying user agent, no
+        robots.txt-disallowed pages) pulled every hearing from the 126th Legislature on, then
+        each letter's PDF. About 2.4% of PDFs are scans; those were OCR'd.</p>
+      <p><b>Who.</b> The free-text organization box is sorted by ordered, auditable rules: a
+        Maine town → individual; "Department of…", "Town of…" → government; known org names,
+        acronyms and an alias table → organization. <b>Which side.</b> Ordered regular
+        expressions read the letter's stated position; letters they can't place go to Claude
+        Haiku, which must quote the sentence that states the stance (the quote is checked
+        against the text). <b>Outcomes</b> come from each bill's status page; <b>sponsor party</b>
+        from Open States.</p>
+      <p>Accuracy was measured on samples hand-labeled after tuning was finished:</p>
+    </div>
+    <div class="acc">
+      <div><div class="v" data-k="acc_sub"></div><div class="l">submitter category correct
+        (n = 300)</div></div>
+      <div><div class="v" data-k="acc_pos"></div><div class="l">positions correct with the Claude
+        fallback (n = 200; regex alone <span data-k="acc_pos_rx"></span>)</div></div>
+      <div><div class="v" data-k="acc_prec"></div><div class="l">of positions right when one is
+        given (rules alone)</div></div>
+    </div>
+    <div class="prose">
+      <p><b>Privacy.</b> Most testimony comes from private people and often includes addresses
+        and personal stories. This site and the public dataset contain no names of private
+        individuals and none of the letters' text. Individuals appear only as a category and a
+        town. Organizations and legislators appear by name.</p>
+      <p><b>Limits.</b> The organization box is self-reported. Budget and unprinted-bill testimony
+        uses another endpoint that isn't collected yet. Pass rates describe bills people testified
+        on, not all bills. The Legislature notes its online record "may not represent a complete
+        record of a hearing."</p>
+      <p><b>Data and code.</b> Everything here is built from the project's
+        <a href="https://github.com/scubdon/maine-testimony">GitHub repository</a>: the scraper,
+        the classifiers, and the public dataset in
+        <a href="https://github.com/scubdon/maine-testimony/tree/main/data/public"><code>data/public/</code></a>
+        (one row per submission, plus bill, organization and town summaries).</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    Data from public records of the Maine State Legislature; sponsors and party from
+    <a href="https://open.pluralpolicy.com/">Open States</a>; county populations from the 2020
+    Census. Figures built <span data-k="generated"></span>. Code MIT.
+  </div>
+</footer>
+
+<div class="tooltip" id="tip" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>

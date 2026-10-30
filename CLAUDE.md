@@ -29,6 +29,7 @@ mtestimony fetch-status            # bill status pages -> bill_status (--reparse
 mtestimony outcomes                # pass rate by share opposed -> data/analysis/
 mtestimony import-sponsors data/external/ME_1*_csv_*   # Open States sponsor + party (no network)
 mtestimony export                  # -> data/public/
+python scripts/build_site_data.py  # -> docs/data/site.json for the Pages site (aggregates only)
 mtestimony stats
 ```
 
@@ -100,6 +101,9 @@ Base `https://legislature.maine.gov/bills/`:
   Names are exported only for `legislator`. Individuals = category + matched town.
 - Never redistribute PDF text; export links (`doc_url`) instead. OCR text is the same.
 - `export-scans` writes PDFs to `data/scans/` (gitignored with the rest of `data/`).
+- `docs/data/site.json` (the Pages site) is aggregates only, from `scripts/build_site_data.py`.
+  Keep it that way: no first/last names, raw `organization`, or text; org names only for
+  clusters with 150+ submissions.
 - `test_pipeline.py::test_end_to_end` guards this. Keep it passing; extend it if
   you add export columns.
 - Test fixtures use fictional names only.
