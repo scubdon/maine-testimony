@@ -12,6 +12,9 @@ Measures, per bill:
 * ``outcome``: law | ontp | died | vetoed | withdrawn | other | open, from the final
   disposition (``outcome_of``). ``passed`` = outcome is law.
 * ``report``: the committee's report, otp | ontp | divided | none (``report_of``).
+* ``sponsor_party`` (from ``import-sponsors``, 128th on) and ``sponsor_majority``: was the
+  primary sponsor in the majority party of their own chamber (HP = House, SP = Senate)?
+  Independents count as not in the majority.
 """
 
 from __future__ import annotations
@@ -23,6 +26,16 @@ import numpy as np
 import pandas as pd
 
 from .db import Store
+
+# Party control by session and chamber. The people data can't give this for the 128th
+# (duplicate and undated records), so it is fixed here. 128th: Senate R 18-17, House D.
+MAJORITY_PARTY = {
+    128: {"HP": "Democratic", "SP": "Republican"},
+    129: {"HP": "Democratic", "SP": "Democratic"},
+    130: {"HP": "Democratic", "SP": "Democratic"},
+    131: {"HP": "Democratic", "SP": "Democratic"},
+    132: {"HP": "Democratic", "SP": "Democratic"},
+}
 
 SHARE_BINS = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0001]
 SHARE_LABELS = ["<10%", "10-25%", "25-50%", "50-75%", "75-90%", "90%+"]
@@ -126,11 +139,21 @@ def bill_table(store: Store) -> pd.DataFrame:
     """One row per bill that has both positioned testimony and a parsed status page."""
     voices = pd.read_sql(_VOICES_SQL, store.conn)
     status = pd.read_sql(
-        "SELECT session_number, ld, final_disposition, chapter, committee_action,"
-        " committee_report, divided_reports FROM bill_status WHERE error IS NULL",
+        "SELECT b.session_number, b.ld, COALESCE(b.paper_number, sp.paper_number) AS paper_number,"
+        " final_disposition, chapter,"
+        " committee_action, committee_report, divided_reports, sp.party AS sponsor_party"
+        " FROM bill_status b LEFT JOIN bill_sponsors sp"
+        " ON sp.session_number = b.session_number AND sp.ld = b.ld"
+        " WHERE b.error IS NULL",
         store.conn,
     )
     df = voices.merge(status, on=["session_number", "ld"], how="inner")
+    df["sponsor_majority"] = [
+        sponsor_majority(s, paper, party)
+        for s, paper, party in zip(
+            df.session_number, df.paper_number, df.sponsor_party, strict=True
+        )
+    ]
     df["outcome"] = [
         outcome_of(d, c) for d, c in zip(df.final_disposition, df.chapter, strict=True)
     ]
@@ -158,6 +181,36 @@ def bill_table(store: Store) -> pd.DataFrame:
     df["cell_n"] = others
     df["cell_pass_rate"] = (passed_sum - df.passed.where(closed, False)) / others.where(others > 0)
     return df.drop(columns=["divided_reports"])
+
+
+def sponsor_majority(session: int, paper: object, party: object) -> bool | None:
+    """True/False if the sponsor's party and chamber are known, else None."""
+    paper, party = _str(paper), _str(party)
+    control = MAJORITY_PARTY.get(session)
+    if not (paper and party and control and paper[:2] in control):
+        return None
+    return party == control[paper[:2]]
+
+
+def by_party(df: pd.DataFrame, min_voices: int = 5, column: str = "oppose_share") -> pd.DataFrame:
+    """Pass rate and committee rejection by opposition, split by the sponsor's party standing.
+
+    Cells are "53% (1255)". "ONTP report" = a unanimous ONTP report or a split one whose
+    larger side was ONTP. If opposition only tracked party, the majority columns would be flat.
+    """
+    d = df[(df.voices >= min_voices) & df.outcome.ne("open") & df.sponsor_majority.notna()].copy()
+    d["bin"] = pd.cut(d[column], SHARE_BINS, labels=SHARE_LABELS, right=False)
+    d["side"] = np.where(d.sponsor_majority.astype(bool), "majority", "minority")
+    d["ontp_report"] = d.report.eq("ontp") | (d.report.eq("divided") & d.majority.eq("ontp"))
+    cols = {}
+    for side in ("majority", "minority"):
+        x = d[d.side == side]
+        for label, value in (("passed", "passed"), ("ONTP report", "ontp_report")):
+            g = x.groupby("bin", observed=False)[value]
+            cells = _cells(g.mean(), g.size())
+            cells.loc["all"] = _cells(pd.Series([x[value].mean()]), pd.Series([len(x)])).iloc[0]
+            cols[f"{label}: {side}"] = cells
+    return pd.DataFrame(cols)
 
 
 def by_opposition(

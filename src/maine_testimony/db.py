@@ -87,6 +87,20 @@ CREATE TABLE IF NOT EXISTS bill_status (
     PRIMARY KEY (session_number, ld)
 );
 
+-- External: Open States primary sponsor + party per bill (`mtestimony import-sponsors`).
+-- Replaced per session on each import; no network, built from files in data/external/.
+CREATE TABLE IF NOT EXISTS bill_sponsors (
+    session_number INTEGER NOT NULL,
+    ld             INTEGER NOT NULL,
+    paper_number   TEXT,   -- from Open States' bill text links, e.g. HP0165
+    sponsor_name   TEXT,   -- as Open States gives it ("Joseph BALDACCI"; 128th-129th: "MASON")
+    person_id      TEXT,   -- ocd-person/... in openstates/people
+    person_name    TEXT,
+    party          TEXT,   -- Democratic | Republican | Independent, on Feb 1 of the first year
+    match          TEXT NOT NULL, -- person_id | surname | surname_chamber | ambiguous | unmatched
+    PRIMARY KEY (session_number, ld)
+);
+
 -- Derived tables: fully rebuilt by `mtestimony classify` / `positions`.
 CREATE TABLE IF NOT EXISTS submitters (
     testimony_id   INTEGER PRIMARY KEY REFERENCES testimony(id),
@@ -316,6 +330,19 @@ class Store:
             ),
         )
         self.conn.commit()
+
+    def replace_bill_sponsors(self, session: int, rows: list[dict]) -> None:
+        cols = (
+            "session_number, ld, paper_number, sponsor_name, person_id, person_name, party, match"
+        )
+        with self.conn:
+            self.conn.execute("DELETE FROM bill_sponsors WHERE session_number = ?", (session,))
+            self.conn.executemany(
+                f"INSERT OR REPLACE INTO bill_sponsors ({cols}) VALUES"
+                " (:session_number, :ld, :paper_number, :sponsor_name, :person_id,"
+                " :person_name, :party, :match)",
+                rows,
+            )
 
     # ---------------------------------------------------------------- reads
     def bills_needing_status(

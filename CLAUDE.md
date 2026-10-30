@@ -11,7 +11,7 @@ context for making changes.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -q                          # 239 tests, ~3s, all HTTP + Claude API + OCR mocked
+pytest -q                          # 247 tests, ~3s, all HTTP + Claude API + OCR mocked
 ruff check . && ruff format .      # line length 100, target py311
 
 # Small live run (a few minutes at 1 req/sec)
@@ -27,6 +27,7 @@ mtestimony positions                # --llm: Claude for regex-unknowns (opt-in, 
 mtestimony form-letters
 mtestimony fetch-status            # bill status pages -> bill_status (--reparse: cache only)
 mtestimony outcomes                # pass rate by share opposed -> data/analysis/
+mtestimony import-sponsors data/external/ME_1*_csv_*   # Open States sponsor + party (no network)
 mtestimony export                  # -> data/public/
 mtestimony stats
 ```
@@ -56,6 +57,7 @@ SQLite (all) -> pipeline.export_public -> data/public/
 | `form_letters.py` | near-duplicate texts per bill (rapidfuzz `cdist` + union-find) |
 | `bill_status.py` | parses `display_ps.asp` bill pages (regexes; the HTML is malformed) + fetch loop |
 | `outcomes.py` | bill-level join of positions to outcomes; `outcome_of` / `report_of` buckets |
+| `sponsors.py` | Open States session CSVs + `openstates/people` YAML -> primary sponsor + party per bill |
 | `pipeline.py` | runs derived steps; `export_public` builds the privacy-safe files |
 | `evaluate.py` | hand-label sampling + precision/recall scoring |
 | `cli.py` | Typer commands; thin wrappers, logic stays in modules |
@@ -164,6 +166,24 @@ Base `https://legislature.maine.gov/bills/`:
   once. `cell_pass_rate` is a leave-one-out committee+session baseline over closed bills.
 - These are associations, not effects: opposition mobilizes where a bill has a chance.
 
+**Sponsors (Open States)**
+- Inputs are downloaded BY HAND into `data/external/` (gitignored): per-session CSV exports
+  `ME_<n>_csv_<hash>` (zip or unzipped; open.pluralpolicy.com/data/session-csv/ needs the
+  user's own login, 128th-132nd only) and a sparse clone of `openstates/people` `data/me`
+  (CC0). `import-sponsors` reads files only; it never touches the network.
+- Open States scraped these sponsors from LawMakerWeb. This project still never crawls
+  LawMakerWeb; reusing the published (public-domain) export was the user's call.
+- `bill_sponsors` is keyed `(session_number, ld)`, one primary sponsor per bill, replaced
+  per session on import. 130th+ sponsors carry an `ocd-person` id (`match = person_id`);
+  128th-129th give surnames only, so `resolve` matches surname among legislators serving the
+  session, then chamber (HP = House, SP = Senate), then first name/initial. Several
+  candidates in one party -> `same_party` (party kept, no person); else `ambiguous`.
+- Party is the one in effect on Feb 1 of the session's first year (two members switched).
+- `outcomes.MAJORITY_PARTY` is a hand-kept table of chamber control per session (the people
+  data double-counts the 128th). Add a row for each new Legislature, or its bills get
+  `sponsor_majority = None` and drop out of `by_party`.
+  Terms with no start date count as open-ended; `session_window` = Dec of an even year.
+
 ## Making common changes
 
 - **New classifier rule / fix**: add a row to the parametrized table in
@@ -266,9 +286,17 @@ Public and MECEP are `organization`.
 - Bill outcomes (2026-10-29, ~3.7 h at 1 req/sec): 13,181 status pages, 13,154 final,
   18 open, 9 `not_bill_page`, 0 download errors, 0 paper mismatches. Results in README
   "Does testimony track the outcome?": pass rate falls from 51% (<10% opposed) to 13% (90%+),
-  but is ~flat by opposition within each committee report. Not yet in `data/public/`;
-  no sponsor/party (LawMakerWeb is disallowed). Rerun `fetch-status` after a session ends
-  (open bills refetch).
+  but is ~flat by opposition within each committee report. Not yet in `data/public/`.
+  Rerun `fetch-status` after a session ends (open bills refetch).
+- Sponsor party (2026-10-29, people repo at `af9d3a6`): 95-100% of our bills per session,
+  128th-132nd (128th 94.6%, the weakest). Paper numbers agree on every joined bill. Blind test
+  on the 130th-132nd (hide Open States' person ids, match like the 128th): every party it
+  assigned was right; surname-only gives a party for 94-98%. Unresolved 128th names (102 bills):
+  same-chamber pairs PIERCE, FECTEAU, CAMPBELL, AUSTIN, FOLEY, DUNPHY, WHITE, plus DION, FREY,
+  BEAR, DANA missing from the people repo. 126th-127th have no Open States data.
+- `outcomes` splits by sponsor standing (`by_party`, 4,671 closed bills with >= 5 voices):
+  pass rate falls with opposition on both sides (majority 53% -> 23%, minority 45% -> 10%);
+  committee mostly-ONTP rises 14% -> 62% for majority sponsors. Results in README.
 
 Full DB (126th-132nd, 4,083 hearings, 181,131 records, classified 2026-10-22): town 42.4%,
 organization 37.3%, government 8.8%, legislator 7.7%, none 2.4%, unknown 1.1%,

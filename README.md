@@ -56,6 +56,7 @@ mtestimony fetch-docs --orgs-only --limit 500   # OCRs new scans if ocrmypdf is 
 mtestimony positions
 mtestimony form-letters
 mtestimony fetch-status                     # each bill's committee report + final outcome
+mtestimony import-sponsors data/external/ME_1*_csv_*   # sponsor + party from Open States files
 mtestimony outcomes                         # pass rate by share of testimony opposed
 mtestimony export                           # -> data/public/
 ```
@@ -265,8 +266,54 @@ These are associations, not causal effects:
   same features of a bill (party, cost, who is asking).
 - Testimony could shape the committee vote, or both could reflect the bill's politics.
   This data can't tell which.
-- Sponsor and party aren't joined (they're on LawMakerWeb, which robots.txt disallows),
-  so partisanship isn't controlled for.
+- Party is only partly controlled for (next section): sponsor party is known for the
+  128th onward, and a sponsor's party doesn't capture bipartisan cosponsors or votes.
+
+#### Sponsor and party (`sponsors.py`)
+
+The Legislature's site lists sponsors only on LawMakerWeb, which robots.txt disallows.
+This project doesn't crawl it. Instead, `import-sponsors` reads two public-domain
+datasets from [Open States](https://open.pluralpolicy.com/), downloaded by hand into
+`data/external/`:
+- its per-session bill exports (128th Legislature onward), which name each bill's
+  primary sponsor;
+- the CC0 [`openstates/people`](https://github.com/openstates/people) records, which give
+  each legislator's dated terms and party.
+
+Open States collected the sponsors from LawMakerWeb itself.
+
+From the 130th on, Open States links each sponsor to a person record. The 128th and
+129th exports give a surname only ("MASON"), so those are matched among legislators
+serving that session, narrowing by chamber and first name when needed. On the
+130th–132nd, matching that way with the person links hidden assigned the correct party
+every time it assigned one. Sponsor party is now known for 95–100% of bills with
+testimony in each session from the 128th to the 132nd. The 126th and 127th aren't
+covered. Thanks to Open States for the data.
+
+**Party doesn't explain away the opposition link.** The table covers 4,671 closed bills
+from the 128th–132nd with at least 5 voices. "Majority" means the sponsor's party
+controlled their chamber (the 128th had a Democratic House and a Republican Senate).
+Independents count as minority.
+
+| Share opposed | Became law: majority sponsor | Became law: minority sponsor | Committee mostly ONTP: majority | Committee mostly ONTP: minority |
+|---|---|---|---|---|
+| under 10% | 53% (1,255) | 45% (287) | 14% | 28% |
+| 25-50% | 45% (530) | 20% (289) | 33% | 69% |
+| 50-75% | 32% (419) | 14% (334) | 49% | 80% |
+| 90% or more | 23% (74) | 10% (96) | 62% | 84% |
+| all | 47% (3,239) | 23% (1,432) | 29% | 64% |
+
+- **Party matters on its own:** majority-party bills became law twice as often (47% vs.
+  23%), and they drew less opposition (26% opposed on average, vs. 43%).
+- **Opposition still matters within each side:** a majority-party bill that was 90%
+  opposed passed less than half as often as an unopposed one. Its committee was four
+  times as likely to recommend "ought not to pass".
+- **The committee is still where it shows:** among majority-party bills with a
+  unanimous "ought to pass" report, 71–83% became law in every opposition band.
+
+So lopsided opposition goes with committee rejection whatever the sponsor's party. It
+still doesn't show that testimony changed votes: bills that draw opposition may be
+weaker or more controversial in ways committees would notice anyway.
 
 ## The dataset (`data/public/`)
 
@@ -322,6 +369,8 @@ PDFs often include home addresses, phone numbers, and personal stories. So:
 - [x] LLM fallback for `unknown` positions, validated against the hand labels
 - [x] Join bill outcomes (committee report, passed, died, vetoed) from each bill's
       status page
+- [x] Sponsor and party from Open States (128th onward)
+- [x] Split the outcome analysis by sponsor's majority/minority party (128th onward)
 - [ ] Bill outcomes in `data/public/bills.csv`
 - [ ] Findings write-up and interactive charts (GitHub Pages)
 

@@ -1,9 +1,18 @@
 import json
 
+import pandas as pd
 import pytest
 
 from maine_testimony.bill_status import BillStatus, DividedReport
-from maine_testimony.outcomes import bill_table, by_opposition, by_report, outcome_of, report_of
+from maine_testimony.outcomes import (
+    bill_table,
+    by_opposition,
+    by_party,
+    by_report,
+    outcome_of,
+    report_of,
+    sponsor_majority,
+)
 
 
 @pytest.mark.parametrize(
@@ -134,3 +143,46 @@ def test_bill_table_counts_campaigns_once_and_skips_legislators(store):
     assert within.loc["90%+", "ONTP"] == "0% (1)"
     assert within.loc["all", "OTP"] == "100% (1)"
     assert within.loc["<10%", "OTP"] == "- (0)"
+
+
+def test_sponsor_majority():
+    assert sponsor_majority(128, "SP0012", "Republican") is True  # R Senate, D House
+    assert sponsor_majority(128, "HP0012", "Republican") is False
+    assert sponsor_majority(131, "HP0001", "Independent") is False
+    assert sponsor_majority(131, None, "Democratic") is None
+    assert sponsor_majority(127, "HP0001", "Democratic") is None  # no Open States data
+    assert sponsor_majority(131, "HP0001", float("nan")) is None
+
+
+def test_by_party_splits_on_sponsor_standing(store):
+    enacted = BillStatus(final_disposition="Enacted", chapter=1, committee_report="Ought To Pass")
+    ontp = BillStatus(
+        final_disposition="Ought Not to Pass Pursuant To Joint Rule 310",
+        committee_report="Ought Not To Pass",
+    )
+    _bill(store, 1, [("town", "support", None)] * 2, enacted)  # majority sponsor, unopposed
+    _bill(store, 2, [("town", "oppose", None)] * 2, ontp)  # minority sponsor, opposed
+    _bill(store, 3, [("town", "oppose", None)] * 2, ontp)  # no sponsor row: left out
+    store.replace_bill_sponsors(
+        132,
+        [
+            {
+                "session_number": 132,
+                "ld": ld,
+                "paper_number": f"HP{ld:04d}",
+                "sponsor_name": "x",
+                "person_id": None,
+                "person_name": None,
+                "party": party,
+                "match": "surname",
+            }
+            for ld, party in ((1, "Democratic"), (2, "Republican"))
+        ],
+    )
+    df = bill_table(store).set_index("ld")
+    assert df.loc[1].sponsor_majority is True and df.loc[2].sponsor_majority is False
+    assert pd.isna(df.loc[3].sponsor_majority)
+    t = by_party(df.reset_index(), min_voices=2)
+    assert t.loc["<10%", "passed: majority"] == "100% (1)"
+    assert t.loc["90%+", "ONTP report: minority"] == "100% (1)"
+    assert t.loc["all", "passed: minority"] == "0% (1)"

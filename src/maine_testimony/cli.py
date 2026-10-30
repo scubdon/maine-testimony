@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
@@ -29,6 +30,7 @@ from .ocr import ocr_pdf, ocrmypdf_available
 from .outcomes import (
     bill_table,
     by_opposition,
+    by_party,
     by_report,
     by_volume,
     passed_despite_opposition,
@@ -43,6 +45,7 @@ from .pipeline import (
     run_classify,
     run_positions,
 )
+from .sponsors import load_people, primary_sponsors, resolve, session_of
 
 app = typer.Typer(add_completion=False, help="Maine Legislature testimony dataset pipeline.")
 
@@ -291,6 +294,30 @@ def fetch_status(
     asyncio.run(go())
 
 
+@app.command("import-sponsors")
+def import_sponsors(
+    sessions: Annotated[
+        list[Path],
+        typer.Argument(help="Open States session exports (ME_<n>_csv_... zip or folder)."),
+    ],
+    db: DB = DEFAULT_DB,
+    people: Annotated[
+        Path, typer.Option(help="openstates/people data/me folder (legislature/, retired/).")
+    ] = Path("data/external/openstates-people/data/me"),
+) -> None:
+    """Load each bill's primary sponsor and party from Open States files (no network)."""
+    store = Store(db)
+    persons = load_people(people)
+    typer.echo(f"{len(persons)} legislators in {people}")
+    for path in sessions:
+        session = session_of(path)
+        rows = resolve(primary_sponsors(path), persons, session)
+        store.replace_bill_sponsors(session, rows)
+        matches = Counter(r["match"] for r in rows)
+        parties = Counter(r["party"] for r in rows)
+        typer.echo(f"{session}: {len(rows)} bills; {dict(matches)}; {dict(parties)}")
+
+
 LLM = Annotated[
     bool,
     typer.Option(
@@ -376,6 +403,14 @@ def outcomes(
         "\nthe link runs through the committee's report, not what happens after it:"
     )
     typer.echo(by_report(df, min_voices, col).to_string())
+    known = df.sponsor_majority.notna() & df.outcome.ne("open")
+    if known.any():
+        typer.echo(
+            f"\nSplit by sponsor party ({known.sum()} closed bills with a known sponsor party,"
+            " 128th on; run import-sponsors).\nMajority = the sponsor's party controlled their"
+            " chamber; independents count as minority:"
+        )
+        typer.echo(by_party(df, min_voices, col).to_string())
     typer.echo("\nBills with >= 75% public opposition, by number of voices:")
     typer.echo(by_volume(df).to_string(**pct))
     typer.echo("\nPassed despite >= 75% opposition (>= 20 voices), most opposed first:")
@@ -477,6 +512,7 @@ def stats(db: DB = DEFAULT_DB) -> None:
         "llm_positions",
         "form_letters",
         "bill_status",
+        "bill_sponsors",
     ):
         typer.echo(f"{t:<12}{store.count(t):>9}")
     scans = len(store.scanned_documents())
